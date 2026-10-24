@@ -13,3 +13,18 @@ test('损坏或类型冲突的状态字段不会被静默覆盖',async()=>{const
 test('设置校验、缺失配置、限流与错误不泄露内容',async()=>{const {env}=fixture();assert.equal((await request(env,'preferences',{...prefs,settings:{...prefs.settings,front:'invalid'}})).status,400);assert.equal((await request(env,'preferences',{...prefs,presets:Array(41).fill(prefs.presets[0])})).status,400);delete env.NOTION_TOKEN;assert.equal((await request(env,'entries')).status,503);env.NOTION_TOKEN='test';env.FETCH=async()=>new Response('private content',{status:429});const r=await request(env,'entries');assert.equal(r.status,429);assert.ok(!(await r.text()).includes('private content'));});
 test('静态页面交给 ASSETS，未授权方法和超长游标被拒绝',async()=>{const {env}=fixture();assert.equal(await(await worker.fetch(new Request('https://memory.example/'),env)).text(),'static page');assert.equal((await worker.fetch(new Request('https://memory.example/api/review',{method:'DELETE'}),env)).status,405);assert.equal((await request(env,'entries?cursor='+'a'.repeat(1001))).status,400);});
 test('启动状态实际检查 Notion，密钥和网络错误明确返回连接失败',async()=>{const {env,calls}=fixture();const ok=await(await request(env,'status')).json();assert.equal(ok.notionConnected,true);assert.ok(calls.some(c=>c.path.includes('/data_sources/')));env.FETCH=async()=>new Response('private upstream details',{status:401});const bad=await request(env,'status');assert.equal(bad.status,502);const data=await bad.json();assert.match(data.error,/Notion 连接失败.*密钥无效/);assert.ok(!JSON.stringify(data).includes('private upstream'));env.FETCH=async()=>{throw new Error('network down');};assert.match((await(await request(env,'status')).json()).error,/Notion 连接失败.*网络/);});
+
+test('诊断区分数据源 ID 不匹配，且不泄露密钥、用户邮箱或上游内容',async()=>{
+ const {env}=fixture();env.FETCH=async(url)=>{
+  const path=new URL(url).pathname;
+  if(path.endsWith('/users/me'))return Response.json({name:'German Memory',person:{email:'private@example.com'},bot:{owner:{email:'private@example.com'}}});
+  if(path.includes('/databases/'))return Response.json({data_sources:[{id:'33333333-3333-4333-8333-333333333333',name:'词汇'}]});
+  return Response.json({code:'object_not_found',message:'private upstream details'},{status:404});
+ };
+ const report=await(await request(env,'diagnostics')).json();assert.equal(report.connection.name,'German Memory');assert.equal(report.source.status,404);assert.equal(report.source.code,'object_not_found');assert.match(report.conclusion,/不属于/);assert.ok(!JSON.stringify(report).includes('private'));assert.ok(!JSON.stringify(report).includes(env.NOTION_TOKEN));
+ const status=await(await request(env,'status')).json();assert.match(status.error,/ID 不匹配/);assert.doesNotMatch(status.error,/未授权此数据库/);
+});
+test('诊断不把双方 404 错判为权限问题',async()=>{
+ const {env}=fixture();env.FETCH=async(url)=>new URL(url).pathname.endsWith('/users/me')?Response.json({name:'German Memory'}):Response.json({code:'object_not_found'},{status:404});
+ const report=await(await request(env,'diagnostics')).json();assert.match(report.conclusion,/尚不能区分/);assert.equal(report.database.status,404);
+});

@@ -10,7 +10,7 @@
 <body>
   <div id="app">
     <header class="topbar"><a class="brand" href="/">W<span>Wortgarten<small>我的德语记忆书房</small></span></a><div class="top-actions"><span id="sync-status" role="status">尚未同步</span><button id="refresh" class="quiet">↻ 同步</button><button id="settings-open" class="quiet" aria-label="字段与显示设置">⚙ 设置</button></div></header>
-    <div id="connection-notice" class="banner" role="status"><span id="connection-message">正在连接 Notion…</span> <button id="connect">重试连接</button><button id="demo">查看示例</button></div>
+    <div id="connection-notice" class="banner" role="status"><span id="connection-message">正在连接 Notion…</span> <button id="connect">重试连接</button><button id="demo">查看示例</button> <a href="/api/diagnostics" target="_blank" rel="noopener">连接诊断</a></div>
     <div id="demo-banner" class="banner" hidden>示例体验 · 内容为演示数据，操作仅保存在本次页面中。<button id="leave-demo">连接我的 Notion →</button></div>
     <div class="banner">免登录共享空间 · 分类、复习进度、常用筛选和界面设置云同步；持有此网址的人共用一份进度。 <strong id="cloud-save-status" role="status"></strong></div>
     <div id="pending-banner" class="banner" hidden>有一次复习尚未确认云同步。<button id="retry-review">重试保存</button><button id="reset-review">同步后重学</button></div>
