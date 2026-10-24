@@ -1,52 +1,14 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import worker from '../src/worker.js';
-const SOURCE='2aaff02b-8ca6-41bc-9c61-fb482528ccf3';
-function fixture(){
-  const calls=[];let count=0;
-  const env={NOTION_TOKEN:'test-only-token',NOTION_DATA_SOURCE_ID:SOURCE,ASSETS:{fetch:async()=>new Response('static page')},FETCH:async(url,init)=>{
-    calls.push({url,method:init.method,data:init.body?JSON.parse(init.body):null});
-    if(url.endsWith('/query')){count++;return Response.json({results:[{id:'entry',properties:{German:{type:'title',title:[{plain_text:'testen'}]}}}],has_more:count===1,next_cursor:count===1?'next-page':null});}
-    return Response.json({properties:{German:{id:'title',type:'title',title:{}}}});
-  }};
-  return {env,calls};
-}
-const request=(env,path,method='GET')=>worker.fetch(new Request('https://memory.example'+path,{method}),env);
-test('公开状态接口无密码依赖，有明确版本标记，不泄露密钥',async()=>{
-  const {env}=fixture(),r=await request(env,'/api/status'),data=await r.json();
-  assert.equal(data.version,'passwordless-v2');assert.equal(data.publicReadOnly,true);assert.equal(data.configured,true);assert.equal(data.progressStorage,'browser');
-  assert.ok(!JSON.stringify(data).includes(env.NOTION_TOKEN));assert.equal(r.headers.get('cache-control'),'no-store');assert.equal(r.headers.get('x-app-version'),'passwordless-v2');
-});
-test('无登录可读取字段与完整分页条目，游标正确传递',async()=>{
-  const {env,calls}=fixture();assert.equal((await request(env,'/api/schema')).status,200);
-  const page=await (await request(env,'/api/entries')).json();assert.equal(page.entries[0].props.German,'testen');assert.equal(page.hasMore,true);
-  await request(env,'/api/entries?cursor=next-page');assert.equal(calls.at(-1).data.start_cursor,'next-page');
-  assert.ok(calls.every(c=>c.method==='GET'||(c.method==='POST'&&c.url.endsWith('/query'))));
-});
-test('所有写入接口关闭，包括旧浏览器缓存的登录、复习、分类和初始化接口',async()=>{
-  const {env,calls}=fixture();
-  for(const path of ['/api/login','/api/review','/api/classify','/api/setup','/api/logout','/api/entries']){
-    for(const method of ['POST','PATCH','PUT','DELETE'])assert.equal((await request(env,path,method)).status,403);
-  }
-  assert.equal(calls.length,0);
-});
-test('缺少 token 时给出可操作的配置提示，状态接口仍可访问',async()=>{
-  const {env}=fixture();delete env.NOTION_TOKEN;
-  assert.equal((await request(env,'/api/status')).status,200);assert.equal((await request(env,'/api/status').then(r=>r.json())).configured,false);
-  const r=await request(env,'/api/entries');assert.equal(r.status,503);assert.match((await r.json()).error,/NOTION_TOKEN/);
-});
-test('数据源配置错误、分页过长和未知接口均返回 JSON 错误',async()=>{
-  const {env}=fixture();assert.equal((await request(env,'/api/entries?cursor='+'a'.repeat(1001))).status,400);
-  assert.equal((await request(env,'/api/missing')).status,404);
-  env.NOTION_DATA_SOURCE_ID='bad';assert.equal((await request(env,'/api/schema')).status,503);
-});
-test('Notion 限流和授权错误不返回笔记或密钥',async()=>{
-  const {env}=fixture();
-  for(const [upstream,status] of [[429,429],[401,502],[403,502]]){
-    env.FETCH=async()=>new Response('private note + secret',{status:upstream});
-    const r=await request(env,'/api/entries');assert.equal(r.status,status);assert.ok(!(await r.text()).includes('private note'));
-  }
-});
-test('页面和静态资源正常转发到 ASSETS',async()=>{
-  const {env}=fixture();assert.equal(await (await request(env,'/')).text(),'static page');assert.equal(await (await request(env,'/app.js')).text(),'static page');
-});
+import test from 'node:test';import assert from 'node:assert/strict';
+import worker from '../src/worker.js';import {STATE_FIELD,decode} from '../src/state.js';import {DEFAULT_MAP} from '../public/core.js';
+import {fixture,request,ONE,TWO} from '../test-support/notion.js';
+const reviewData={id:ONE,result:'good',eventId:'11111111-2222-4333-8444-555555555555',expectedLastReviewed:null};
+const prefs={settings:{map:DEFAULT_MAP,front:'chinese',back:'german',display:['example','mnemonic']},filter:{rules:[{field:'Priority',op:'in',values:['A','B']}],logic:'and',search:'',sort:'priority',mode:'cards'},presets:[{name:'积极词汇',rules:[],logic:'and',search:'',sort:'priority'}],resume:{mode:'cards',id:TWO}};
+test('状态标明免登录与 Notion 共享，不泄露 token',async()=>{const {env}=fixture();const r=await request(env,'status'),d=await r.json();assert.equal(d.version,'shared-v3');assert.equal(d.learningShared,true);assert.equal(d.progressStorage,'notion');assert.equal(d.loginRequired,false);assert.ok(!JSON.stringify(d).includes(env.NOTION_TOKEN));assert.equal(r.headers.get('cache-control'),'no-store');});
+test('字段与分页读取；内部状态不混入原笔记属性',async()=>{const {env,calls}=fixture();assert.equal((await request(env,'schema')).status,200);const p=await(await request(env,'entries')).json();assert.equal(p.hasMore,true);assert.equal(p.entries[0].props.German,'sich erholen');await request(env,'entries?cursor=page-2');assert.equal(calls.at(-1).data.start_cursor,'page-2');});
+test('分类写入固定状态字段，其他设备读取到相同分类，不改原始属性',async()=>{const {env,calls,pages}=fixture();const r=await request(env,'classify',{id:ONE,changes:{priority:'D',formalScore:5,usage:'积极词汇'}});assert.equal(r.status,200);const d=await(await request(env,'entries')).json();assert.equal(d.entries[0].learning.priority,'D');assert.equal(d.entries[0].props.Priority,'A');assert.ok(!Object.hasOwn(d.entries[0].props,STATE_FIELD));for(const c of calls.filter(c=>c.path.includes('/pages/')&&c.method==='PATCH'))assert.deepEqual(Object.keys(c.data.properties),[STATE_FIELD]);assert.equal(pages.get(ONE).properties.German.title[0].plain_text,'sich erholen');});
+test('复习云同步、重试不重复计数、过期设备收到冲突',async()=>{const {env,calls}=fixture();const first=await(await request(env,'review',reviewData)).json();assert.equal(first.learning.reviewCount,1);assert.equal(first.learning.mastery,'Learning');assert.equal((await(await request(env,'review',reviewData)).json()).duplicate,true);assert.equal(calls.filter(c=>c.path.includes('/pages/')&&c.method==='PATCH').length,1);assert.equal((await request(env,'review',{...reviewData,eventId:'22222222-2222-4333-8444-555555555555'})).status,409);});
+test('筛选、字段、卡片方向和续学位置跨设备共享；保存设置不覆盖复习',async()=>{const {env,pages}=fixture();assert.equal((await(await request(env,'preferences')).json()).preferences,null);await request(env,'review',reviewData);const r=await request(env,'preferences',prefs);assert.equal(r.status,200);assert.deepEqual((await(await request(env,'preferences')).json()).preferences,prefs);assert.equal(decode(pages.get(ONE)).review.reviewCount,1);await request(env,'classify',{id:ONE,changes:{priority:'C'}});assert.deepEqual((await(await request(env,'preferences')).json()).preferences,prefs);});
+test('拒绝任意原笔记修改、越界评分、其他数据源记录和跨站请求',async()=>{const {env,pages}=fixture();for(const changes of [{German:'覆盖正文'},{formalScore:0},{priority:'Z'},{__test__:'x'}])assert.equal((await request(env,'classify',{id:ONE,changes})).status,400);assert.equal((await request(env,'classify',{id:ONE,changes:{priority:'A'}},'https://evil.example')).status,403);pages.get(ONE).parent.data_source_id=TWO;assert.equal((await request(env,'classify',{id:ONE,changes:{priority:'B'}})).status,403);for(const path of ['login','setup','logout'])assert.equal((await request(env,path,{})).status,404);});
+test('损坏或类型冲突的状态字段不会被静默覆盖',async()=>{const {env,properties,pages,calls}=fixture();properties[STATE_FIELD]={type:'rich_text',rich_text:{}};pages.get(ONE).properties[STATE_FIELD]={type:'rich_text',rich_text:[{text:{content:'invalid state'}}]};assert.equal((await request(env,'classify',{id:ONE,changes:{priority:'A'}})).status,409);assert.equal(calls.some(c=>c.path.includes('/pages/')&&c.method==='PATCH'),false);properties[STATE_FIELD]={type:'formula',formula:{}};assert.equal((await request(env,'schema')).status,409);});
+test('设置校验、缺失配置、限流与错误不泄露内容',async()=>{const {env}=fixture();assert.equal((await request(env,'preferences',{...prefs,settings:{...prefs.settings,front:'invalid'}})).status,400);assert.equal((await request(env,'preferences',{...prefs,presets:Array(41).fill(prefs.presets[0])})).status,400);delete env.NOTION_TOKEN;assert.equal((await request(env,'entries')).status,503);env.NOTION_TOKEN='test';env.FETCH=async()=>new Response('private content',{status:429});const r=await request(env,'entries');assert.equal(r.status,429);assert.ok(!(await r.text()).includes('private content'));});
+test('静态页面交给 ASSETS，未授权方法和超长游标被拒绝',async()=>{const {env}=fixture();assert.equal(await(await worker.fetch(new Request('https://memory.example/'),env)).text(),'static page');assert.equal((await worker.fetch(new Request('https://memory.example/api/review',{method:'DELETE'}),env)).status,405);assert.equal((await request(env,'entries?cursor='+'a'.repeat(1001))).status,400);});
