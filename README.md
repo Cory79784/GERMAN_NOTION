@@ -59,10 +59,12 @@ GPT 使用它自己的 Notion 连接继续整理笔记，与网页连接独立�
 
 ## 验证线上版本
 
-访问网页地址后的 `/api/status`，应返回：
+启动时会实际请求 Notion 检查连接；失败在学习界面内显示具体原因（密钥、权限、网络），不会出现欢迎页。构建检查也会拒绝包含旧欢迎页／密码框的入口。
+
+访问网页地址后的 `/api/status`，连接成功时应返回：
 
 ```json
-{"version":"shared-v3","configured":true,"loginRequired":false,"originalContentReadOnly":true,"learningShared":true,"progressStorage":"notion"}
+{"version":"shared-v3","configured":true,"notionConnected":true,"loginRequired":false,"originalContentReadOnly":true,"learningShared":true,"progressStorage":"notion"}
 ```
 
 - 返回 `Hello world`：线上未使用正确后端入口；检查构建／部署命令、分支、根目录、最新提交和构建日志。

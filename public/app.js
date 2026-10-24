@@ -7,7 +7,7 @@ const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem('gm.'+key
 const save=(key,value)=>{try{localStorage.setItem('gm.'+key,JSON.stringify(value));return true;}catch{toast('浏览器无法暂存设置，请确认云同步成功后再关闭页面');return false;}};
 const initialSettings={map:{...DEFAULT_MAP},front:'chinese',back:'german',display:['example','germanContext','chineseContext','grammar','explanation','family','mnemonic','insight','error','correction','formality','frequency','spoken']};
 const settings={...initialSettings,...read('settings',{}),map:{...DEFAULT_MAP,...read('settings',{}).map}};
-const s={cloudReady:false,sharedDirty:false,prefGeneration:0,prefTimer:null,writeChain:Promise.resolve(),pendingReview:read('cloudReview',null),entries:[],properties:[],settings,rules:read('rules',[]),logic:read('logic','and'),search:read('search',''),mode:read('mode','browse'),sort:read('sort','priority'),presets:read('presets',[]),selected:new Set(),session:[],index:0,revealed:false,limit:40,demo:false,loading:false,busy:false};
+const s={connectionError:'',cloudReady:false,sharedDirty:false,prefGeneration:0,prefTimer:null,writeChain:Promise.resolve(),pendingReview:read('cloudReview',null),entries:[],properties:[],settings,rules:read('rules',[]),logic:read('logic','and'),search:read('search',''),mode:read('mode','browse'),sort:read('sort','priority'),presets:read('presets',[]),selected:new Set(),session:[],index:0,revealed:false,limit:40,demo:false,loading:false,busy:false};
 let toastTimer;
 function toast(msg){$('toast').textContent=msg;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5500);}
 async function api(path,options={}) {
@@ -76,6 +76,9 @@ function render(){
   $('selection-toolbar').hidden=s.mode!=='browse';
   $('pending-banner').hidden=!s.pendingReview||s.demo;
   document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===s.mode));
+  if(!s.demo&&!s.entries.length&&(s.connectionError||s.checking)){
+    $('content').innerHTML=s.connectionError?empty('学习内容加载失败',s.connectionError):'<p class="loading">正在检查 Notion 连接…</p>';return;
+  }
   if(s.mode==='browse'){
     $('content').innerHTML=found.length?found.slice(0,s.limit).map(e=>`<article class="entry" data-id="${escape(e.id)}"><div class="entry-top"><div>${chips(e)}</div><label><input type="checkbox" data-select="${escape(e.id)}" ${s.selected.has(e.id)?'checked':''}>选择</label></div><h2>${escape(val(e,'german')||'（德语字段为空）')}</h2><p class="translation">${escape(val(e,'chinese')||'（暂无中文）')}</p><details><summary>展开语境、例句与记忆点</summary>${detailHTML(e)||'<p class="muted">暂无辅助内容，可在 Notion 中补充。</p>'}</details><div class="entry-bottom"><button data-speak="${escape(e.id)}">▷ 德语朗读</button><button data-learn="${escape(e.id)}">练这张卡片 →</button>${safeLink(e.url)}</div></article>`).join('')+(found.length>s.limit?'<button id="load-more" class="load-more">显示更多条目</button>':''):empty(s.loading?'正在读取 Notion…':'没有匹配的条目',s.mode==='due'?'暂时没有到期卡片。':'可减少筛选条件，或检查字段映射。');
   }else renderCard(found);
@@ -130,15 +133,15 @@ async function sync(){
     do {const page=await api('entries'+(cursor?'?cursor='+encodeURIComponent(cursor):''));collected.push(...page.entries);cursor=page.hasMore?page.cursor:null;if(page.hasMore&&!cursor)throw new Error('分页游标缺失，未替换当前数据');$('sync-status').textContent=`已读取 ${collected.length} 条…`;}while(cursor);
     // Replace only after every page succeeds; avoid showing incomplete results as a full sync.
     s.entries=collected.map(e=>{e.rawProps={...e.props};applyLearning(e,e.learning||{});return e;});s.cloudReady=true;const ids=new Set(collected.map(e=>e.id));s.selected=new Set([...s.selected].filter(id=>ids.has(id)));
-    $('connection-notice').hidden=true;
+    s.connectionError='';$('connection-notice').hidden=true;
     $('sync-status').textContent='已同步 '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
     renderFilters();render();
     if(s.sharedDirty)await flushPreferences();
-  }catch(e){$('sync-status').textContent='同步失败';$('connection-notice').hidden=false;$('connection-message').textContent=e.message+'；当前学习界面保持打开。';toast(e.message+'；当前结果未被覆盖');}
+  }catch(e){s.connectionError=e.message;$('sync-status').textContent='同步失败';$('connection-notice').hidden=false;$('connection-message').textContent=e.message+'；当前学习界面保持打开。';toast(e.message+'；当前结果未被覆盖');}
   finally{s.loading=false;$('refresh').disabled=false;render();}
 }
 function startApp(demo=false){
-  s.demo=demo;$('demo-banner').hidden=!demo;$('connection-notice').hidden=demo;
+  s.demo=demo;if(demo)s.connectionError='';$('demo-banner').hidden=!demo;$('connection-notice').hidden=demo;
   $('search').value=s.search;$('sort').value=s.sort;
   if(demo){const d=demoData();s.entries=d.entries;s.properties=d.properties;$('sync-status').textContent='示例模式';renderFilters();render();}
   else checkStatus();
@@ -268,7 +271,7 @@ $('batch-form').addEventListener('submit',classify);
 for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener('cancel',event=>{if(s.busy)event.preventDefault();});
 async function checkStatus(){
   if(s.checking)return;
-  s.checking=true;
+  s.checking=true;s.connectionError='';
   $('connection-notice').hidden=false;$('connection-message').textContent='正在连接 Notion…';
   $('search').value=s.search;$('sort').value=s.sort;renderFilters();render();
   try{
@@ -276,8 +279,8 @@ async function checkStatus(){
     if(status.version!=='shared-v3'||!status.learningShared)throw new Error('线上后端尚未更新，请检查 Cloudflare 是否部署了 GitHub 最新提交');
     if(!status.configured)throw new Error('请在 Cloudflare 配置 NOTION_TOKEN；无需 APP_PASSWORD。');
     await sync();
-  }catch(e){$('connection-message').textContent=e.message;$('sync-status').textContent='连接失败';}
-  finally{s.checking=false;}
+  }catch(e){s.connectionError=e.message;$('connection-message').textContent=e.message;$('sync-status').textContent='连接失败';}
+  finally{s.checking=false;render();}
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&s.cloudReady&&!s.demo&&!s.busy)sync();});
 startApp();

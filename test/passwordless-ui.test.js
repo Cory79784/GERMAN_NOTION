@@ -29,3 +29,4 @@ test('Hello world 返回明确部署提示，没有密码表单',async()=>{
  const env={ASSETS:{fetch:async()=>new Response('Hello world')}};const b=await browser(env,'hello-error',true);
  try{await b.wait(()=>b.$('connection-message').textContent.includes('示例后端'));assert.equal(b.window.document.querySelector('input[type=password]'),null);assert.equal(b.$('gate'),null);assert.equal(b.$('app').hidden,false);}finally{await b.close();}
 });
+test('Notion 无法连接时保持学习界面可见，显示具体错误，不返回主页',async()=>{const {env}=fixture();env.FETCH=async()=>new Response('private details',{status:401});const b=await browser(env,'notion-connection-failed');try{await b.wait(()=>b.$('connection-message').textContent.includes('密钥无效'));assert.equal(b.$('app').hidden,false);assert.equal(b.$('gate'),null);assert.equal(b.window.document.querySelector('input[type=password]'),null);assert.match(b.$('content').textContent,/学习内容加载失败/);assert.match(b.$('content').textContent,/Notion 连接失败/);}finally{await b.close();}});
