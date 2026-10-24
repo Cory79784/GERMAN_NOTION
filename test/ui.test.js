@@ -15,6 +15,7 @@ test('页面交互：筛选、主题列表、主动回忆、评分与自定义�
     const $=id=>window.document.getElementById(id);
     const click=selector=>window.document.querySelector(selector).click();
     const change=el=>el.dispatchEvent(new window.Event('change',{bubbles:true}));
+    assert.equal(window.document.querySelector('input[type=password]'),null);
     click('#demo');assert.equal($('gate').hidden,true);assert.equal(window.document.querySelectorAll('.entry').length,10);
     click('[data-quick="active"]');assert.equal(window.document.querySelectorAll('.entry').length,7);
     click('[data-quick="ab"]');assert.equal(window.document.querySelectorAll('.entry').length,7);
@@ -24,8 +25,7 @@ test('页面交互：筛选、主题列表、主动回忆、评分与自定义�
     click('#reveal');assert.match(window.document.querySelector('.card-answer').textContent,/Lieferkette/);click('[data-rate="good"]');assert.match($('content').textContent,/已经完成/);
     click('#settings-open');assert.equal($('settings-dialog').open,true);assert.ok($('mapping-fields').querySelectorAll('select').length>25);
     const map=$('settings-form').querySelector('[name="map.german"]');assert.equal(map.value,'German');
-    click('[data-close]'); // First dialog's close control is harmless; use explicit settings close below.
-    $('settings-dialog').close();click('[data-mode="browse"]');click('#reset-filters');
+        $('settings-dialog').close();click('[data-mode="browse"]');click('#reset-filters');
     click('#select-results');assert.match($('selection-count').textContent,/10/);click('#batch-open');assert.equal($('batch-dialog').open,true);
     const usage=$('batch-form').elements.namedItem('usage');usage.value='消极词汇';change(usage);
     $('batch-form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
