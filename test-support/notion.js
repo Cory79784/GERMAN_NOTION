@@ -1,10 +1,12 @@
+import {SharedPreferences} from '../src/preferences.js';
 import {STATE_FIELD} from '../src/state.js';
 export const SOURCE='2aaff02b-8ca6-41bc-9c61-fb482528ccf3',ONE='11111111-1111-4111-8111-111111111111',TWO='22222222-2222-4222-8222-222222222222';
 const prop=(type,value)=>({type,[type]:type==='title'||type==='rich_text'?[{text:{content:value},plain_text:value}]:type==='select'?{name:value}:type==='date'?value?{start:value}:null:value});
 export function fixture(){
   const calls=[],properties={German:{type:'title',title:{}},Chinese:{type:'rich_text',rich_text:{}},Priority:{type:'select',select:{options:[{name:'A'},{name:'B'}]}}};
   const pages=new Map([ONE,TWO].map((id,i)=>[id,{id,parent:{type:'data_source_id',data_source_id:SOURCE},url:'https://www.notion.so/'+id,last_edited_time:'2026-10-24',properties:{German:prop('title',i?'einen Beitrag leisten':'sich erholen'),Chinese:prop('rich_text',i?'作出贡献':'恢复'),Priority:prop('select',i?'B':'A'),Mastery:prop('select','New'),ReviewCount:prop('number',0),ReviewInterval:prop('number',0),LastReviewed:prop('date',null)}}]));
-  const env={NOTION_TOKEN:'test-only-token',NOTION_DATA_SOURCE_ID:SOURCE,ASSETS:{fetch:async()=>new Response('static page')},FETCH:async(url,init)=>{
+  const storage=new Map(),durable=new SharedPreferences({storage:{get:async key=>structuredClone(storage.get(key)),put:async(key,value)=>storage.set(key,structuredClone(value))}});
+  const env={SHARED_PREFERENCES:{idFromName:x=>x,get:()=>durable},NOTION_TOKEN:'test-only-token',NOTION_DATA_SOURCE_ID:SOURCE,ASSETS:{fetch:async()=>new Response('static page')},FETCH:async(url,init)=>{
     const path=new URL(url).pathname,data=init.body?JSON.parse(init.body):null;calls.push({path,method:init.method,data});
     if(path.endsWith('/query')){
       let results=[...pages.values()];

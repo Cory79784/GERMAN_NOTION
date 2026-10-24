@@ -55,3 +55,10 @@ test('Notion 富文本、公式、数字零、多选、日期结果正确读取'
   assert.deepEqual(plainProperty({type:'multi_select',multi_select:[{name:'A'},{name:'B'}]}),['A','B']);
   assert.equal(plainProperty({type:'date',date:{start:'2026-10-24'}}),'2026-10-24');
 });
+
+test('同字段重复多选合并为 OR，空范围不启用，其他字段默认 AND',()=>{
+ const e={props:{Priority:'B',Topic:['工作','物流']}};
+ assert.equal(matches(e,[{field:'Priority',op:'in',values:['A']},{field:'Priority',op:'in',values:['B']},{field:'Topic',op:'in',values:['物流']}]),true);
+ assert.equal(matches(e,[{field:'Priority',op:'in',values:['B']},{field:'Topic',op:'in',values:['健康']}]),false);
+ assert.equal(matches(e,[{field:'missing',op:'range'}]),true);
+});

@@ -11,5 +11,21 @@
   "vars": {
     "NOTION_DATA_SOURCE_ID": "2aaff02b-8ca6-41bc-9c61-fb482528ccf3"
   },
-  "workers_dev": true
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SHARED_PREFERENCES",
+        "class_name": "SharedPreferences"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "preferences-v1",
+      "new_sqlite_classes": [
+        "SharedPreferences"
+      ]
+    }
+  ]
 }

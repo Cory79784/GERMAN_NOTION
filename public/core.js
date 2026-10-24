@@ -1,6 +1,6 @@
 // Shared pure functions: no framework and no network dependencies.
 export const DEFAULT_MAP = {
-  german: 'German', chinese: 'Chinese', topic: '学习主题', subtopic: '子主题',
+  german: 'German', chinese: 'Chinese', topicGroup:'Topic', topic: '学习主题', subtopic: '子主题',
   tags: '标签', type: 'Type', usage: '学习用途', priority: 'Priority',
   formality: '书面程度', formalScore: '书面程度评分', frequency: '常用度',
   frequencyScore: '常用度评分', spoken: '口语程度', mastery: 'Mastery',
@@ -12,13 +12,15 @@ export const DEFAULT_MAP = {
   errorCount: 'ErrorCount', eventId: 'ReviewEventID', classification: '分类状态'
 };
 export const LABELS = {
-  german:'德语',chinese:'中文',topic:'学习主题',subtopic:'子主题',tags:'标签',type:'内容类型',
+  german:'德语',chinese:'中文',topicGroup:'主题大类',topic:'学习主题',subtopic:'子主题',tags:'标签',type:'内容类型',
   usage:'积极／消极词汇',priority:'优先级 A–D',formality:'书面程度（原文）',formalScore:'书面程度评分 1–5',
   frequency:'常用度（原文）',frequencyScore:'常用度评分 1–5',spoken:'口语程度',mastery:'掌握程度',
   example:'例句',germanContext:'德语上下文',chineseContext:'中文上下文',grammar:'语法',
   explanation:'词项讲解',family:'词族路线',mnemonic:'记忆点',insight:'我的心得',error:'我的错误',
   correction:'正确表达',nextReview:'下次复习',classification:'分类确认状态'
 };
+export const REVIEW_ROLES=['interval','nextReview','lastReviewed','reviewCount','errorCount','streak','mastery','lastResult'];
+export const REVIEW_MAP=Object.fromEntries(REVIEW_ROLES.map(k=>[k,'复习·'+k]));
 export const EMPTY = '__empty__';
 export function text(value) {
   if (value == null) return '';
@@ -39,7 +41,12 @@ export function number(value) {
 export function field(entry, role, mapping = DEFAULT_MAP) { return entry.props[mapping[role]]; }
 export function matches(entry, rules = [], logic = 'and', search = '') {
   if (search && !Object.values(entry.props).some(v => text(v).toLocaleLowerCase().includes(search.toLocaleLowerCase()))) return false;
-  const enabled = rules.filter(r => r.field && (r.op === 'empty' || r.op === 'notempty' || (r.op === 'in' ? r.values?.length : r.op === 'range' ? r.min !== '' || r.max !== '' : r.value !== '')));
+  const enabled=[];
+  for(const r of rules){
+    if(!r.field||!(r.op==='empty'||r.op==='notempty'||(r.op==='in'?r.values?.length:r.op==='range'?[r.min,r.max].some(v=>v!==undefined&&v!==''):typeof r.value==='string'&&r.value!=='')))continue;
+    const same=r.op==='in'&&enabled.find(x=>x.op==='in'&&x.field===r.field);
+    if(same)same.values=[...new Set([...same.values,...r.values])];else enabled.push({...r,...(r.values?{values:[...r.values]}:{})});
+  }
   if (!enabled.length) return true;
   const check = r => {
     const v = entry.props[r.field];
@@ -49,7 +56,7 @@ export function matches(entry, rules = [], logic = 'and', search = '') {
     if (r.op === 'contains') return text(v).toLocaleLowerCase().includes(String(r.value).toLocaleLowerCase());
     if (r.op === 'range') {
       const n = number(v);
-      return n !== null && (r.min === '' || n >= Number(r.min)) && (r.max === '' || n <= Number(r.max));
+      return n !== null && (r.min == null || r.min === '' || n >= Number(r.min)) && (r.max == null || r.max === '' || n <= Number(r.max));
     }
     return false;
   };
