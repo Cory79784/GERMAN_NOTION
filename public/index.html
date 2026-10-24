@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#214e42"><meta name="description" content="从理解到表达，你的 Notion 德语记忆书房。">
+  <title>Wortgarten · 德语记忆</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div id="gate" class="gate">
+    <section class="welcome">
+      <span class="brand-icon">W.</span><p class="eyebrow">DEIN PERSÖNLICHER WORTGARTEN</p>
+      <h1>让理解过的德语，<br>成为说得出的表达。</h1>
+      <p class="muted">主题、语境、句子与联想。把自己的笔记，慢慢种进记忆。</p>
+      <form id="login-form"><label for="password">个人访问口令</label><input id="password" name="password" type="password" autocomplete="current-password" required placeholder="输入口令进入书房"><button class="primary" type="submit">进入我的记忆库 →</button></form>
+      <p id="gate-status" class="muted" role="status">正在检查连接…</p>
+      <button id="demo" class="text-button">先体验示例内容 ↗</button>
+    </section>
+    <aside class="welcome-art" aria-hidden="true"><div class="art-orbit"></div><div class="art-word">begreifen<span>理解 · 领会</span><em>greifen → 抓住<br>把意思“抓在手里”</em></div><p>Verstehen. Erinnern. Anwenden.</p></aside>
+  </div>
+  <div id="app" hidden>
+    <header class="topbar"><a class="brand" href="/">W<span>Wortgarten<small>我的德语记忆书房</small></span></a><div class="top-actions"><span id="sync-status" role="status">尚未同步</span><button id="refresh" class="quiet">↻ 同步</button><button id="settings-open" class="quiet" aria-label="字段与显示设置">⚙ 设置</button><button id="logout" class="quiet">退出</button></div></header>
+    <div id="demo-banner" class="banner" hidden>示例体验 · 内容为演示数据，操作仅保存在本次页面中。<button id="leave-demo">连接我的 Notion →</button></div>
+    <div id="pending-banner" class="banner" hidden>有一次复习尚未确认保存。<button id="retry">重试保存</button><button id="discard-pending">放弃此次保存并刷新</button></div>
+    <main class="layout">
+      <aside id="filters" class="filters"><div class="panel-heading"><h2>筛选你的学习范围</h2><button id="filters-close" class="quiet mobile-only" aria-label="关闭筛选">✕</button></div><p class="muted small">同一条件内多选为“或”，条件之间自由组合。</p><div id="filter-content"></div></aside>
+      <section class="workspace">
+        <div class="intro"><div><p class="eyebrow">EIN BISSCHEN, JEDEN TAG.</p><h1>今天，记住一点新表达。</h1><p class="muted">不必一次记住所有，先选出现在最需要的。</p></div><div class="stat"><strong id="total">0</strong><span>条自己的积累</span></div></div>
+        <nav class="tabs" aria-label="学习模式"><button data-mode="browse" class="active">主题学习</button><button data-mode="cards">记忆卡片</button><button data-mode="due">今日复习 <span id="due-count">0</span></button></nav>
+        <div class="searchbar"><input id="search" type="search" placeholder="搜索德语、中文、例句、笔记…" aria-label="全文搜索"><button id="filters-open" class="quiet mobile-only">筛选 <span id="rule-count">0</span></button></div>
+        <div class="results-toolbar"><p id="result-count" aria-live="polite"></p><div><select id="sort" aria-label="排序"><option value="priority">优先级优先</option><option value="updated">最近更新</option><option value="german">德语字母顺序</option><option value="due">复习时间</option></select><button id="save-filter" class="quiet">保存筛选</button></div></div>
+        <div id="quick-filters" class="quick-filters"></div>
+        <div id="selection-toolbar" class="selection-toolbar"><span id="selection-count">未选择条目</span><button id="select-results" class="quiet">选择筛选结果</button><button id="clear-selection" class="quiet">取消选择</button><button id="batch-open" class="primary">批量分类</button></div>
+        <div id="content"></div>
+      </section>
+    </main>
+    <footer>WORTGARTEN <span>自己的笔记，自己的节奏。</span></footer>
+  </div>
+  <dialog id="preset-dialog"><form id="preset-form"><h2>保存这组筛选</h2><label>名称<input name="name" required maxlength="40" placeholder="例如：A级书面积极词汇"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary">保存</button></div></form></dialog>
+  <dialog id="batch-dialog"><form id="batch-form"><h2>批量设置分类</h2><p id="batch-summary"></p><p class="muted small">只修改下方明确选择的字段；留空表示保留原值。评分为 1–5，越高越常用／越书面。积极词汇指主动说写，消极词汇指理解即可。</p><div id="batch-fields"></div><p id="batch-status" role="status"></p><div class="dialog-actions"><button type="button" data-close>取消</button><button id="batch-submit" class="primary">确认写入 Notion</button></div></form></dialog>
+  <dialog id="settings-dialog" class="wide-dialog"><h2>字段与显示设置</h2><p class="muted small">读取你实际的 Notion 字段，可映射到不同列。设置和常用筛选保存在当前浏览器；复习进度存回 Notion。</p><div class="setup-box"><strong>首次使用：补齐分类与复习字段</strong><p class="small muted">新增学习用途、两项数字评分、分类状态及缺少的复习字段；Priority 补充 C/D。保留已有选项与记录，不自动给条目打分。公式字段保持只读。</p><button id="setup" class="quiet">查看字段方案并初始化</button></div><form id="settings-form"><div class="mapping-grid"><label>卡片正面<select name="front"><option value="chinese">中文</option><option value="german">德语</option></select></label><label>卡片背面<select name="back"><option value="german">德语</option><option value="chinese">中文</option></select></label></div><h3>辅助内容与顺序</h3><div id="display-fields"></div><h3>Notion 字段映射</h3><div id="mapping-fields" class="mapping-grid"></div><div class="dialog-actions"><button type="button" data-close>关闭</button><button class="primary">保存设置</button></div></form></dialog>
+  <dialog id="confirm-dialog"><h2>将补齐以下字段</h2><p class="muted small">仅新增字段／缺少的选项；不修改任何条目的已有值。</p><div id="setup-plan"></div><div class="dialog-actions"><button data-close>取消</button><button id="setup-confirm" class="primary">确认初始化</button></div></dialog>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body></html>

@@ -1,0 +1,16 @@
+{
+  "name": "german-notion-memory",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "node --check src/worker.js && node --check public/app.js && node --check public/core.js",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "happy-dom": "^21.0.4",
+    "wrangler": "^4.0.0"
+  }
+}
