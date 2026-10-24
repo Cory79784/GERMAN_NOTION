@@ -3,6 +3,15 @@
   "name": "german-notion",
   "main": "src/worker.js",
   "compatibility_date": "2026-10-24",
-  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
-  "vars": { "NOTION_DATA_SOURCE_ID": "2aaff02b-8ca6-41bc-9c61-fb482528ccf3" }
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "vars": {
+    "NOTION_DATA_SOURCE_ID": "2aaff02b-8ca6-41bc-9c61-fb482528ccf3"
+  },
+  "workers_dev": true
 }
