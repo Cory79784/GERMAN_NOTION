@@ -11,7 +11,7 @@ async function browser(env,suffix,hello=false){
 test('两个独立浏览器：无登录共享进度、分类、界面设置、常用筛选和续学位置',async()=>{
  const {env}=fixture();let b=await browser(env,'device-a');
  try{
-  await b.wait(()=>b.$('total').textContent==='2');assert.equal(b.window.document.querySelector('input[type=password]'),null);
+  await b.wait(()=>b.$('total').textContent==='2');assert.equal(b.window.document.querySelector('input[type=password]'),null);assert.equal(b.$('gate'),null);assert.equal(b.$('app').hidden,false);
   b.click('[data-mode="cards"]');b.click('#reveal');b.click('[data-rate="good"]');await b.wait(()=>b.$('content').textContent.includes('2 / 2'));
   b.click('[data-mode="browse"]');b.click('#select-results');b.click('#batch-open');b.$('batch-form').elements.namedItem('priority').value='D';b.$('batch-form').dispatchEvent(new b.window.Event('submit',{bubbles:true,cancelable:true}));await b.wait(()=>b.$('batch-status').textContent.includes('全部完成'));b.$('batch-dialog').close();
   b.click('#settings-open');b.$('settings-form').elements.namedItem('front').value='german';b.$('settings-form').elements.namedItem('back').value='chinese';b.$('settings-form').dispatchEvent(new b.window.Event('submit',{bubbles:true,cancelable:true}));
@@ -27,5 +27,5 @@ test('两个独立浏览器：无登录共享进度、分类、界面设置、�
 });
 test('Hello world 返回明确部署提示，没有密码表单',async()=>{
  const env={ASSETS:{fetch:async()=>new Response('Hello world')}};const b=await browser(env,'hello-error',true);
- try{await b.wait(()=>b.$('gate-status').textContent.includes('示例后端'));assert.equal(b.window.document.querySelector('input[type=password]'),null);}finally{await b.close();}
+ try{await b.wait(()=>b.$('connection-message').textContent.includes('示例后端'));assert.equal(b.window.document.querySelector('input[type=password]'),null);assert.equal(b.$('gate'),null);assert.equal(b.$('app').hidden,false);}finally{await b.close();}
 });

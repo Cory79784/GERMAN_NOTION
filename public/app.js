@@ -130,17 +130,18 @@ async function sync(){
     do {const page=await api('entries'+(cursor?'?cursor='+encodeURIComponent(cursor):''));collected.push(...page.entries);cursor=page.hasMore?page.cursor:null;if(page.hasMore&&!cursor)throw new Error('分页游标缺失，未替换当前数据');$('sync-status').textContent=`已读取 ${collected.length} 条…`;}while(cursor);
     // Replace only after every page succeeds; avoid showing incomplete results as a full sync.
     s.entries=collected.map(e=>{e.rawProps={...e.props};applyLearning(e,e.learning||{});return e;});s.cloudReady=true;const ids=new Set(collected.map(e=>e.id));s.selected=new Set([...s.selected].filter(id=>ids.has(id)));
+    $('connection-notice').hidden=true;
     $('sync-status').textContent='已同步 '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
     renderFilters();render();
     if(s.sharedDirty)await flushPreferences();
-  }catch(e){$('sync-status').textContent='同步失败';toast(e.message+'；当前结果未被覆盖');}
+  }catch(e){$('sync-status').textContent='同步失败';$('connection-notice').hidden=false;$('connection-message').textContent=e.message+'；当前学习界面保持打开。';toast(e.message+'；当前结果未被覆盖');}
   finally{s.loading=false;$('refresh').disabled=false;render();}
 }
 function startApp(demo=false){
-  s.demo=demo;$('gate').hidden=true;$('app').hidden=false;$('demo-banner').hidden=!demo;
+  s.demo=demo;$('demo-banner').hidden=!demo;$('connection-notice').hidden=demo;
   $('search').value=s.search;$('sort').value=s.sort;
   if(demo){const d=demoData();s.entries=d.entries;s.properties=d.properties;$('sync-status').textContent='示例模式';renderFilters();render();}
-  else sync();
+  else checkStatus();
 }
 async function rate(result){
   if(s.busy||s.loading)return;
@@ -218,7 +219,7 @@ document.addEventListener('click',async event=>{
     if(b.dataset.up||b.dataset.down){const role=b.dataset.up||b.dataset.down,i=s.settings.display.indexOf(role),j=i+(b.dataset.up?-1:1);if(i>=0&&j>=0&&j<s.settings.display.length)[s.settings.display[i],s.settings.display[j]]=[s.settings.display[j],s.settings.display[i]];renderDisplayFields();return;}
     switch(b.id){
       case 'demo':startApp(true);break;
-      case 'leave-demo':s.demo=false;s.entries=[];s.properties=[];resetSession();$('app').hidden=true;$('gate').hidden=false;await checkStatus();break;
+      case 'leave-demo':s.demo=false;s.entries=[];s.properties=[];resetSession();$('demo-banner').hidden=true;await checkStatus();break;
       case 'refresh':await sync();break;
       case 'settings-open':openSettings();break;
       case 'filters-open':$('filters').classList.add('open');$('filters-close').focus();break;
@@ -266,13 +267,17 @@ $('settings-form').addEventListener('submit',event=>{
 $('batch-form').addEventListener('submit',classify);
 for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener('cancel',event=>{if(s.busy)event.preventDefault();});
 async function checkStatus(){
-  $('gate-status').textContent='正在连接 Notion…';
+  if(s.checking)return;
+  s.checking=true;
+  $('connection-notice').hidden=false;$('connection-message').textContent='正在连接 Notion…';
+  $('search').value=s.search;$('sort').value=s.sort;renderFilters();render();
   try{
     const status=await api('status');
-    if(status.version!=='shared-v3'||!status.learningShared)throw new Error('线上还不是最新免登录云同步版本，请等待 Cloudflare 从 GitHub 部署最新提交');
-    if(status.configured)startApp();
-    else $('gate-status').textContent='请在 Cloudflare 设置 NOTION_TOKEN；无需 APP_PASSWORD。数据源 ID 已在仓库中配置。';
-  }catch(e){$('gate-status').textContent=e.message;}
+    if(status.version!=='shared-v3'||!status.learningShared)throw new Error('线上后端尚未更新，请检查 Cloudflare 是否部署了 GitHub 最新提交');
+    if(!status.configured)throw new Error('请在 Cloudflare 配置 NOTION_TOKEN；无需 APP_PASSWORD。');
+    await sync();
+  }catch(e){$('connection-message').textContent=e.message;$('sync-status').textContent='连接失败';}
+  finally{s.checking=false;}
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&s.cloudReady&&!s.demo&&!s.busy)sync();});
-checkStatus();
+startApp();

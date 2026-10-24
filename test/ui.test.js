@@ -16,7 +16,7 @@ test('页面交互：筛选、主题列表、主动回忆、评分与自定义�
     const click=selector=>window.document.querySelector(selector).click();
     const change=el=>el.dispatchEvent(new window.Event('change',{bubbles:true}));
     assert.equal(window.document.querySelector('input[type=password]'),null);
-    click('#demo');assert.equal($('gate').hidden,true);assert.equal(window.document.querySelectorAll('.entry').length,10);
+    click('#demo');assert.equal($('gate'),null);assert.equal(window.document.querySelectorAll('.entry').length,10);
     click('[data-quick="active"]');assert.equal(window.document.querySelectorAll('.entry').length,7);
     click('[data-quick="ab"]');assert.equal(window.document.querySelectorAll('.entry').length,7);
     click('#reset-filters');click('[data-quick="unclassified"]');assert.equal(window.document.querySelectorAll('.entry').length,1);assert.match($('content').textContent,/Einerseits/);
