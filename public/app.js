@@ -1,5 +1,5 @@
 import { DEFAULT_MAP, LABELS, EMPTY, text, values, matches, due, field, review, REVIEW_MAP, REVIEW_ROLES, isNew, isTrouble, makeRound, roundSummary } from './core.js';
-import {initImageViewer} from './images.js';
+import {initImageViewer} from './images.js?v=ink-8';
 import { demoData } from './demo.js';
 
 const $ = id=>document.getElementById(id);
@@ -300,7 +300,7 @@ async function checkStatus(){
 }
 document.addEventListener('load',event=>{const img=event.target;if(img.matches?.('.image-preview img'))img.parentElement.querySelector('.image-load-state').textContent='';},true);
 document.addEventListener('error',event=>{const img=event.target;if(img.matches?.('.image-preview img'))img.parentElement.querySelector('.image-load-state').textContent='预览加载失败，点击打开后重试';},true);
-const imageViewer=initImageViewer({api,post,getEntry:id=>s.entries.find(e=>e.id===id),getField:()=>mapping().images,getSource:()=>activeSource,toast,isDemo:()=>s.demo});
+const imageViewer=initImageViewer({api,post,getEntry:id=>s.entries.find(e=>e.id===id),getEntries:()=>s.mode==='browse'||s.session.length<=1?filtered():s.session.map(id=>s.entries.find(e=>e.id===id)).filter(Boolean),onClose:id=>{if(s.mode==='browse'||s.session[s.index]===id)return;const pos=s.session.indexOf(id);if(pos>=0){s.index=pos;s.revealed=false;rememberRound();render();}else if(s.session.length===1)beginRound([id]);},getField:()=>mapping().images,getSource:()=>activeSource,toast,isDemo:()=>s.demo});
 $('round-form').addEventListener('submit',event=>{event.preventDefault();try{const data=new FormData(event.target),size=Number(data.get('size')==='custom'?data.get('custom'):data.get('size'));const ids=makeRound(filtered(),size,data.get('order'));if(!ids.length)return toast('当前筛选没有可学习内容');$('round-dialog').close();beginRound(ids);}catch(e){toast(e.message);}});
 async function awaitSwitch(source){
   if(!['text','screenshots'].includes(source)||source===activeSource)return;

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --config wrangler.jsonc",
-    "build": "node --check src/worker.js && node --check public/app.js && node --check public/core.js && node --check src/state.js && node --check src/preferences.js && node --check src/media.js && node --check public/images.js && node scripts/check-entry.mjs",
+    "build": "node --check src/worker.js && node --check public/app.js && node --check public/core.js && node --check src/state.js && node --check src/preferences.js && node --check src/media.js && node --check public/images.js && node --check public/ink.js && node scripts/check-entry.mjs",
     "test": "node --test"
   },
   "devDependencies": {

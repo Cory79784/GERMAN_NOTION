@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {Window} from 'happy-dom';
-import worker from '../src/worker.js';import {fixture,ONE,twoSources,SHOT_ONE} from '../test-support/notion.js';
+import worker from '../src/worker.js';import {fixture,ONE,twoSources,SHOT_ONE,SHOT_TWO} from '../test-support/notion.js';
 async function browser(env,suffix,hello=false,source='text'){
- const window=new Window({url:'https://memory.example'}),saved={};window.localStorage.setItem('gm.source',JSON.stringify(source));window.document.write(await readFile(new URL('../public/index.html',import.meta.url),'utf8'));
+ const window=new Window({url:'https://memory.example'}),saved={};window.localStorage.setItem('gm.source',JSON.stringify(source));window.HTMLCanvasElement.prototype.getContext=()=>({clearRect(){},save(){},restore(){},fillRect(){},beginPath(){},arc(){},fill(){},moveTo(){},lineTo(){},stroke(){}});window.document.write(await readFile(new URL('../public/index.html',import.meta.url),'utf8'));
  for(const name of ['window','document','localStorage','FormData','setTimeout','clearTimeout']){saved[name]=globalThis[name];globalThis[name]=name==='window'?window:name.endsWith('Timeout')?window[name].bind(window):window[name];}
  saved.fetch=globalThis.fetch;globalThis.fetch=async(url,init={})=>hello?new Response('Hello world'):worker.fetch(new Request('https://memory.example'+url,{...init,headers:{...init.headers,...(init.method==='POST'?{Origin:'https://memory.example'}:{})}}),env);
  await import('../public/app.js?'+suffix);
@@ -82,19 +82,43 @@ test('本轮条数、三种评分统计、只重练错误／模糊，并能跨�
   b.click('#repeat-trouble');assert.match(b.$('content').textContent,/1 \/ 1/);assert.ok(b.window.document.querySelector('[data-id="'+ONE+'"]'));b.click('[data-mode="browse"]');b.click('[data-scope="trouble"]');assert.equal(b.window.document.querySelectorAll('.entry').length,1);b.click('[data-scope="new"]');assert.equal(b.window.document.querySelectorAll('.entry').length,0);
  }finally{await b.close();}
 });
-test('独立截图表、空文字图片卡、多图共享进度、遮挡比例跨设备保持，原图与文字表不改',async()=>{
- const {env,text,shot}=twoSources();let b=await browser(env,'image-a',false,'screenshots');try{
-  await b.wait(()=>b.$('total').textContent==='2');const type=b.$('content-type');type.value='image';type.dispatchEvent(new b.window.Event('change',{bubbles:true}));assert.equal(b.window.document.querySelectorAll('.entry').length,1);
-  b.click('[data-open-image="'+SHOT_ONE+'"]');await b.wait(()=>!b.$('mask-save').disabled);assert.match(b.$('image-counter').textContent,/1 \/ 2/);
-  const img=b.$('study-image');img.getBoundingClientRect=()=>({left:0,top:0,width:400,height:1600});img.dispatchEvent(new b.window.Event('load'));b.click('#mask-edit');
-  for(const [event,x,y]of [['pointerdown',100,400],['pointermove',300,800],['pointerup',300,800]])b.$('image-overlay').dispatchEvent(new b.window.PointerEvent(event,{bubbles:true,pointerId:1,isPrimary:true,button:0,clientX:x,clientY:y}));
-  assert.equal(b.window.document.querySelector('.image-mask').style.left,'25%');assert.equal(b.window.document.querySelector('.image-mask').style.top,'25%');b.click('#mask-save');await b.wait(()=>b.$('image-status').textContent.includes('已保存到 Cloudflare'));
-  b.click('#image-next');await b.wait(()=>b.$('image-counter').textContent.includes('2 / 2')&&!b.$('mask-save').disabled);assert.equal(b.window.document.querySelectorAll('.image-mask').length,0);b.click('#image-prev');await b.wait(()=>b.window.document.querySelectorAll('.image-mask').length===1);b.click('#image-close');
-  b.click('[data-learn="'+SHOT_ONE+'"]');assert.ok(b.window.document.querySelector('.image-preview'));b.click('[data-rate="good"]');await b.wait(()=>b.$('content').textContent.includes('本轮复习完成'));await b.wait(()=>b.$('cloud-save-status').textContent==='设置已云同步');
-  assert.equal(text.calls.some(c=>c.method==='PATCH'),false);assert.equal(shot.calls.filter(c=>c.method==='PATCH'&&c.path.includes('/pages/')).length,1);assert.equal(shot.pages.get(SHOT_ONE).properties['截图'].files.length,2);
+test('羽化笔自动保存，跨记录连续切图，回退与跨设备保持涂画，文字表不改',async()=>{
+ const {env,text,shot}=twoSources();shot.pages.get(SHOT_TWO).properties['截图']={type:'files',files:[{name:'third.png',type:'file',file:{url:'https://prod-files-secure.s3.us-west-2.amazonaws.com/workspace/third/third.png?signature=x'}}]};
+ let b=await browser(env,'ink-a',false,'screenshots');try{
+  await b.wait(()=>b.$('total').textContent==='2');b.click('[data-open-image="'+SHOT_ONE+'"]');await b.wait(()=>b.$('image-status').textContent.includes('点击记号笔')&&b.$('image-counter').textContent.includes('1 / 3'));
+  const img=b.$('study-image');img.getBoundingClientRect=()=>({left:0,top:0,width:400,height:1600});img.dispatchEvent(new b.window.Event('load'));await b.wait(()=>!b.$('ink-pen').disabled);
+  assert.equal(b.$('mask-save'),null);assert.equal(b.$('image-fullscreen'),null);b.$('ink-size').value='40';b.$('ink-color').value='#ff0000';b.click('#ink-pen');
+  for(const [event,x,y]of [['pointerdown',100,400],['pointermove',300,800],['pointerup',300,800]])b.$('image-ink').dispatchEvent(new b.window.PointerEvent(event,{bubbles:true,pointerId:1,isPrimary:true,button:0,clientX:x,clientY:y}));
+  // Switching immediately must save before moving, rather than losing the last stroke.
+  b.click('#image-next');await b.wait(()=>b.$('image-counter').textContent.includes('2 / 3')&&b.$('image-status').textContent.includes('点击记号笔'));
+  b.click('#image-next');await b.wait(()=>b.$('image-counter').textContent.includes('3 / 3')&&b.$('image-status').textContent.includes('点击记号笔'));assert.equal(b.$('image-next').disabled,true);assert.match(b.$('study-image').src,new RegExp(SHOT_TWO));
+  b.click('#image-prev');await b.wait(()=>b.$('image-counter').textContent.includes('2 / 3')&&b.$('image-status').textContent.includes('点击记号笔'));b.click('#image-prev');await b.wait(()=>b.$('image-counter').textContent.includes('1 / 3')&&b.$('image-status').textContent.includes('点击记号笔'));
+  b.click('#image-close');await b.wait(()=>!b.$('image-dialog').open);assert.equal(text.calls.some(c=>c.method==='PATCH'),false);assert.equal(shot.calls.some(c=>c.method==='PATCH'),false);
+  // Check the server's actual stored coordinates and brush settings.
+  const entries=await(await worker.fetch(new Request('https://memory.example/api/entries?source=screenshots'),env)).json(),image=entries.entries[0].media['截图'][0].key;
+  const read=()=>worker.fetch(new Request('https://memory.example/api/masks?'+new URLSearchParams({source:'screenshots',id:SHOT_ONE,field:'截图',image})),env).then(r=>r.json());
+  const saved=await read();assert.equal(saved.strokes.length,1);assert.equal(saved.strokes[0].color,'#ff0000');assert.equal(saved.strokes[0].width,.1);assert.deepEqual(saved.strokes[0].points,[[.25,.25],[.75,.5]]);
  }finally{await b.close();}
- b=await browser(env,'image-b',false,'screenshots');try{
-  await b.wait(()=>b.$('total').textContent==='2');assert.match(b.$('content').textContent,/本轮复习完成/);b.click('[data-mode="browse"]');b.click('[data-open-image="'+SHOT_ONE+'"]');await b.wait(()=>b.window.document.querySelectorAll('.image-mask').length===1);b.$('study-image').getBoundingClientRect=()=>({left:0,top:0,width:800,height:3200});b.click('#mask-mode');const mask=b.window.document.querySelector('.image-mask');assert.equal(mask.style.left,'25%');assert.equal(mask.style.width,'50%');assert.equal(mask.hidden,false);mask.click();assert.equal(b.window.document.querySelector('.image-mask').classList.contains('revealed'),true);b.click('#image-close');
+ b=await browser(env,'ink-b',false,'screenshots');try{
+  await b.wait(()=>b.$('total').textContent==='2');b.click('[data-open-image="'+SHOT_ONE+'"]');await b.wait(()=>b.$('image-status').textContent.includes('点击记号笔'));b.$('study-image').dispatchEvent(new b.window.Event('load'));await b.wait(()=>!b.$('ink-clear').disabled);b.click('#ink-clear');await b.wait(()=>b.$('image-status').textContent==='已自动保存');b.click('#image-close');await b.wait(()=>!b.$('image-dialog').open);
   b.$('source-select').value='text';b.$('source-select').dispatchEvent(new b.window.Event('change',{bubbles:true}));await b.wait(()=>b.$('content').textContent.includes('sich erholen'));assert.equal(b.window.document.querySelectorAll('.image-preview').length,0);
+ }finally{await b.close();}
+});
+test('每行一张图的单卡练习也可跨记录切换，关闭后给当前图片所属记录评分',async()=>{
+ const {env,shot}=twoSources();shot.pages.get(SHOT_ONE).properties['截图'].files=shot.pages.get(SHOT_ONE).properties['截图'].files.slice(0,1);shot.pages.get(SHOT_TWO).properties['截图']={type:'files',files:[{name:'second.png',type:'file',file:{url:'https://prod-files-secure.s3.us-west-2.amazonaws.com/second/second.png'}}]};
+ const b=await browser(env,'one-image-per-record',false,'screenshots');try{
+  await b.wait(()=>b.$('total').textContent==='2');b.click('[data-learn="'+SHOT_ONE+'"]');b.click('[data-open-image="'+SHOT_ONE+'"]');await b.wait(()=>b.$('image-status').textContent.includes('点击记号笔'));assert.match(b.$('image-counter').textContent,/1 \/ 2/);assert.equal(b.$('image-next').disabled,false);
+  b.click('#image-next');await b.wait(()=>b.$('image-status').textContent.includes('点击记号笔')&&b.$('image-counter').textContent.includes('2 / 2'));b.click('#image-close');await b.wait(()=>!b.$('image-dialog').open);
+  assert.equal(b.window.document.querySelector('.card').dataset.id,SHOT_TWO);b.click('[data-rate="good"]');await b.wait(()=>b.$('content').textContent.includes('本轮复习完成'));
+  assert.ok(shot.calls.some(c=>c.method==='PATCH'&&c.path.endsWith(SHOT_TWO)));assert.equal(shot.calls.some(c=>c.method==='PATCH'&&c.path.endsWith(SHOT_ONE)),false);
+ }finally{await b.close();}
+});
+test('涂画保存失败不切图，重试成功再前进',async()=>{
+ const {env}=twoSources(),get=env.SHARED_PREFERENCES.get;let fail=true;env.SHARED_PREFERENCES={...env.SHARED_PREFERENCES,get:id=>{const stub=get(id);return {fetch:req=>req.method==='POST'&&new URL(req.url).pathname.startsWith('/masks/')&&fail?Response.json({error:'保存服务暂不可用'},{status:503}):stub.fetch(req)};}};
+ const b=await browser(env,'ink-failed-save',false,'screenshots');try{
+  await b.wait(()=>b.$('total').textContent==='2');b.click('[data-open-image="'+SHOT_ONE+'"]');await b.wait(()=>b.$('image-status').textContent.includes('点击记号笔'));b.$('study-image').getBoundingClientRect=()=>({left:0,top:0,width:400,height:1600});b.$('study-image').dispatchEvent(new b.window.Event('load'));b.click('#ink-pen');
+  for(const type of ['pointerdown','pointerup'])b.$('image-ink').dispatchEvent(new b.window.PointerEvent(type,{bubbles:true,isPrimary:true,pointerId:1,clientX:50,clientY:50}));
+  b.click('#image-next');await b.wait(()=>b.$('image-status').textContent.includes('尚未同步'));assert.match(b.$('image-counter').textContent,/1 \/ 2/);assert.ok(Object.keys(b.window.localStorage).some(k=>k.startsWith('gm.inkDraft.')));
+  fail=false;b.click('#image-retry');await b.wait(()=>b.$('image-status').textContent==='已自动保存');b.click('#image-next');await b.wait(()=>b.$('image-counter').textContent.includes('2 / 2'));
  }finally{await b.close();}
 });

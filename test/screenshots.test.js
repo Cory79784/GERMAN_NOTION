@@ -43,3 +43,19 @@ test('新内容不属于错误，随机抽取不重不漏，统计与比例坐�
  assert.deepEqual(roundSummary({one:'again',two:'hard',three:'good'}),{again:1,hard:1,good:1});
  const rect=normalizedRect({x:.8,y:.9},{x:.2,y:.3});assert.ok(Math.abs(rect.x-.2)<1e-8);assert.ok(Math.abs(rect.w-.6)<1e-8);assert.equal(normalizedRect({x:-1,y:0},{x:2,y:1}).w,1);
 });
+test('记号笔与擦除参数校验，版本冲突保护，旧矩形保持兼容',async()=>{
+ const {env,pages,calls}=mediaFixture(),image=(await imageFiles(pages.get(ONE),'截图'))[0].key,base={id:ONE,field:'截图',image};
+ const strokes=[{tool:'pen',color:'#ff0000',width:.1,points:[[.25,.25],[.75,.5]]},{tool:'erase',color:'#202020',width:.05,points:[[.3,.3],[.4,.4]]}];
+ assert.equal((await request(env,'masks',{...base,rects:[],strokes,expectedVersion:0})).status,200);
+ const path='masks?'+new URLSearchParams(base);assert.deepEqual((await(await request(env,path)).json()).strokes,strokes);
+ assert.equal((await request(env,'masks',{...base,rects:[],strokes:[],expectedVersion:0})).status,409);
+ // A stale UI that only understands rectangles must not erase new brush strokes.
+ await request(env,'masks',{...base,rects:[],expectedVersion:1});assert.deepEqual((await(await request(env,path)).json()).strokes,strokes);
+ assert.equal((await request(env,'masks',{...base,rects:[],strokes:[{...strokes[0],points:[[2,0]]}],expectedVersion:2})).status,400);
+ await request(env,'masks',{...base,rects:[],strokes:[],expectedVersion:2});assert.deepEqual((await(await request(env,path)).json()).strokes,[]);assert.equal(calls.some(c=>c.method==='PATCH'),false);
+});
+test('图片队列跨记录展开且保持筛选顺序；羽化与擦除使用正确合成方式',async()=>{
+ const {imageQueue,paintInk}=await import('../public/ink.js');const entries=[{id:'a',media:{截图:[{key:'a1'},{key:'a2'}]}},{id:'b',media:{截图:[{key:'b1'}]}}];assert.deepEqual(imageQueue(entries,'截图').map(x=>[x.entry.id,x.file.key]),[['a','a1'],['a','a2'],['b','b1']]);
+ const ops=[],ctx={clearRect(){},save(){},restore(){},fillRect(){},beginPath(){},arc(){},fill(){ops.push([this.globalCompositeOperation,this.shadowBlur]);},moveTo(){},lineTo(){},stroke(){ops.push([this.globalCompositeOperation,this.shadowBlur]);}};
+ paintInk(ctx,[],[{tool:'pen',color:'#000000',width:.1,points:[[.1,.2],[.2,.3]]},{tool:'erase',color:'#000000',width:.1,points:[[.2,.2]]}],400,1600);assert.equal(ops[0][0],'source-over');assert.equal(ops[1][0],'destination-out');assert.ok(ops.every(x=>x[1]>0));
+});
