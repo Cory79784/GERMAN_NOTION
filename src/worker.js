@@ -45,7 +45,7 @@ export default{async fetch(req,env){
       await notion(env,`/data_sources/${source}`);
       return json({version:VERSION,configured,notionConnected:true,loginRequired:false,originalContentReadOnly:true,learningShared:true,progressStorage:'notion',preferencesStorage:'cloudflare',preferencesConfigured:!!env.SHARED_PREFERENCES,reviewField:STATE_FIELD});
     }
-    if(u.pathname==='/api/schema'&&req.method==='GET'){const s=await sourceSchema(env,notion);return json({properties:Object.entries(s.properties).filter(([n])=>![STATE_FIELD,LEGACY_FIELD].includes(n)).map(([name,p])=>({name,id:p.id,type:p.type,options:p[p.type]?.options?.map(x=>x.name)||[]}))});}
+    if(u.pathname==='/api/schema'&&req.method==='GET'){const s=await sourceSchema(env,notion);return json({properties:Object.entries(s.properties).filter(([n])=>![STATE_FIELD,LEGACY_FIELD].includes(n)).map(([name,p])=>({name,id:p.id,type:p.type,...(p.type==='formula'?{formula:p.formula?.expression}:{}),options:p[p.type]?.options?.map(x=>x.name)||[]}))});}
     if(u.pathname==='/api/entries'&&req.method==='GET'){
       const cursor=u.searchParams.get('cursor');if(cursor&&cursor.length>1000)throw new HttpError(400,'无效分页参数');
       const r=await notion(env,`/data_sources/${source}/query`,'POST',{page_size:100,...(cursor?{start_cursor:cursor}:{})});
