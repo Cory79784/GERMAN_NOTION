@@ -2,10 +2,10 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="app-version" content="review-only-6"><meta name="theme-color" content="#214e42"><meta name="description" content="从理解到表达，你的 Notion 德语记忆书房。">
+  <meta name="app-version" content="screenshots-7"><meta name="theme-color" content="#214e42"><meta name="description" content="从理解到表达，你的 Notion 德语记忆书房。">
   <title>Wortgarten · 德语记忆</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/style.css?v=review-only-6"><script type="module" src="/app.js?v=review-only-6"></script>
+  <link rel="stylesheet" href="/style.css?v=screenshots-7"><script type="module" src="/app.js?v=screenshots-7"></script>
 </head>
 <body>
   <div id="app">
@@ -19,6 +19,7 @@
       <aside id="filters" class="filters"><div class="panel-heading"><h2>筛选你的学习范围</h2><button id="filters-close" class="quiet mobile-only" aria-label="关闭筛选">✕</button></div><p class="muted small">同一条件内多选为“或”，条件之间自由组合。</p><div id="filter-content"></div></aside>
       <section class="workspace">
         <div class="intro"><div><p class="eyebrow">EIN BISSCHEN, JEDEN TAG.</p><h1>今天，记住一点新表达。</h1><p class="muted">不必一次记住所有，先选出现在最需要的。</p></div><div class="stat"><strong id="total">0</strong><span>条自己的积累</span></div></div>
+        <div class="study-controls"><label>知识库<select id="source-select"><option value="text">文字知识库</option><option value="screenshots">截图知识库</option></select></label><label>内容<select id="content-type"><option value="all">全部</option><option value="text">文字</option><option value="image">截图</option></select></label><button id="start-round" class="primary">开始本轮学习</button></div><div class="quick-filters"><button data-scope="all">全部内容</button><button data-scope="new">新内容</button><button data-scope="due">到期复习</button><button data-scope="trouble">上次没记住／模糊</button></div>
         <nav class="tabs" aria-label="学习模式"><button data-mode="browse" class="active">主题学习</button><button data-mode="cards">记忆卡片</button><button data-mode="due">今日复习 <span id="due-count">0</span></button></nav>
         <div class="searchbar"><input id="search" type="search" placeholder="搜索德语、中文、例句、笔记…" aria-label="全文搜索"><button id="filters-open" class="quiet mobile-only">筛选 <span id="rule-count">0</span></button></div>
         <div class="results-toolbar"><p id="result-count" aria-live="polite"></p><div><select id="sort" aria-label="排序"><option value="priority">优先级优先</option><option value="updated">最近更新</option><option value="german">德语字母顺序</option><option value="due">复习时间</option></select><button id="save-filter" class="quiet">保存筛选</button></div></div>
@@ -28,6 +29,8 @@
     </main>
     <footer>WORTGARTEN <span>自己的笔记，自己的节奏。</span></footer>
   </div>
+  <dialog id="round-dialog"><form id="round-form"><h2>开始本轮学习</h2><p id="round-count"></p><label>本轮条数<select name="size"><option value="10">10 条</option><option value="20" selected>20 条</option><option value="custom">自定义</option></select></label><label>自定义条数<input name="custom" type="number" min="1" max="200" value="30"></label><label>顺序<select name="order"><option value="ordered">按当前排序</option><option value="random">随机</option></select></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary">开始学习</button></div></form></dialog>
+  <dialog id="image-dialog" class="image-dialog"><div class="image-tools"><strong id="image-counter"></strong><button id="image-close">关闭</button><button id="image-prev">上一张图片</button><button id="image-next">下一张图片</button><button id="image-fullscreen">全屏</button><label>缩放<input id="image-zoom" type="range" min="1" max="3" step="0.1" value="1"></label></div><p id="image-status" role="status"></p><div id="image-viewport" class="image-viewport"><div id="image-stage" class="image-stage"><img id="study-image" alt="截图"><div id="image-overlay" class="image-overlay"></div></div></div><div class="image-tools"><button id="image-retry">重新加载图片</button><button id="mask-mode">切换为遮挡回忆</button><button id="mask-edit">绘制遮挡</button><button id="mask-undo">撤销一个</button><button id="mask-clear">清空遮挡</button><button id="mask-save" class="primary">保存遮挡</button></div><p class="small muted">阅读时可滚动长图、双指缩放；绘制时拖动图片框选答案。遮挡只存 Cloudflare，不修改原图。</p></dialog>
   <dialog id="preset-dialog"><form id="preset-form"><h2>保存这组筛选</h2><label>名称<input name="name" required maxlength="40" placeholder="例如：A级书面积极词汇"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary">保存</button></div></form></dialog>
   <dialog id="settings-dialog" class="wide-dialog"><h2>字段与显示设置</h2><p class="muted small">读取你实际的 Notion 字段，可映射到不同列。设置和常用筛选保存在 Cloudflare，复习进度保存在 Notion 的“学习记录”列，手机电脑共享。修改设置后请等到“设置已云同步”。</p><div class="setup-box"><strong>仅保存复习记录</strong><p class="small muted">首次复习会新增“学习记录”文本列，只写复习时间、结果和调度信息。原字段、旧 WortgartenState 均不修改。Notion 内部连接需开启读取和更新内容权限。</p></div><form id="settings-form"><div class="mapping-grid"><label>卡片正面<select name="front"><option value="chinese">中文</option><option value="german">德语</option></select></label><label>卡片背面<select name="back"><option value="german">德语</option><option value="chinese">中文</option></select></label></div><h3>辅助内容与顺序</h3><div id="display-fields"></div><h3>Notion 字段映射</h3><div id="mapping-fields" class="mapping-grid"></div><div class="dialog-actions"><button type="button" data-close>关闭</button><button class="primary">保存设置</button></div></form></dialog>
   <div id="toast" role="status" aria-live="polite" hidden></div>

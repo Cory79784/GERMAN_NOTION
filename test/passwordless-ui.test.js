@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {Window} from 'happy-dom';
-import worker from '../src/worker.js';import {fixture,ONE} from '../test-support/notion.js';
-async function browser(env,suffix,hello=false){
- const window=new Window({url:'https://memory.example'}),saved={};window.document.write(await readFile(new URL('../public/index.html',import.meta.url),'utf8'));
+import worker from '../src/worker.js';import {fixture,ONE,twoSources,SHOT_ONE} from '../test-support/notion.js';
+async function browser(env,suffix,hello=false,source='text'){
+ const window=new Window({url:'https://memory.example'}),saved={};window.localStorage.setItem('gm.source',JSON.stringify(source));window.document.write(await readFile(new URL('../public/index.html',import.meta.url),'utf8'));
  for(const name of ['window','document','localStorage','FormData','setTimeout','clearTimeout']){saved[name]=globalThis[name];globalThis[name]=name==='window'?window:name.endsWith('Timeout')?window[name].bind(window):window[name];}
  saved.fetch=globalThis.fetch;globalThis.fetch=async(url,init={})=>hello?new Response('Hello world'):worker.fetch(new Request('https://memory.example'+url,{...init,headers:{...init.headers,...(init.method==='POST'?{Origin:'https://memory.example'}:{})}}),env);
  await import('../public/app.js?'+suffix);
@@ -70,5 +70,31 @@ test('分页中途失败保留完整旧数据；重复游标明确报错不清�
 test('Cloudflare 设置故障不阻止读取 Notion 全部内容',async()=>{
  const {env}=fixture();delete env.SHARED_PREFERENCES;const b=await browser(env,'settings-offline');try{
   await b.wait(()=>b.$('total').textContent==='2');assert.equal(b.window.document.querySelectorAll('.entry').length,2);assert.match(b.$('data-notice').textContent,/设置云同步暂不可用/);assert.equal(b.$('connection-notice').hidden,true);
+ }finally{await b.close();}
+});
+test('本轮条数、三种评分统计、只重练错误／模糊，并能跨设备恢复同一队列',async()=>{
+ const {env}=fixture();let b=await browser(env,'round-a');try{
+  await b.wait(()=>b.$('total').textContent==='2');b.click('#start-round');b.$('round-form').elements.namedItem('size').value='custom';b.$('round-form').elements.namedItem('custom').value='2';b.$('round-form').dispatchEvent(new b.window.Event('submit',{bubbles:true,cancelable:true}));
+  b.click('#reveal');b.click('[data-rate="hard"]');await b.wait(()=>b.$('content').textContent.includes('2 / 2'));await b.wait(()=>b.$('cloud-save-status').textContent==='设置已云同步');
+ }finally{await b.close();}
+ b=await browser(env,'round-b');try{
+  await b.wait(()=>b.$('total').textContent==='2');assert.match(b.$('content').textContent,/2 \/ 2/);b.click('#reveal');b.click('[data-rate="good"]');await b.wait(()=>b.$('content').textContent.includes('本轮复习完成'));assert.match(b.$('content').textContent,/记住 1 · 模糊 1 · 没记住 0/);
+  b.click('#repeat-trouble');assert.match(b.$('content').textContent,/1 \/ 1/);assert.ok(b.window.document.querySelector('[data-id="'+ONE+'"]'));b.click('[data-mode="browse"]');b.click('[data-scope="trouble"]');assert.equal(b.window.document.querySelectorAll('.entry').length,1);b.click('[data-scope="new"]');assert.equal(b.window.document.querySelectorAll('.entry').length,0);
+ }finally{await b.close();}
+});
+test('独立截图表、空文字图片卡、多图共享进度、遮挡比例跨设备保持，原图与文字表不改',async()=>{
+ const {env,text,shot}=twoSources();let b=await browser(env,'image-a',false,'screenshots');try{
+  await b.wait(()=>b.$('total').textContent==='2');const type=b.$('content-type');type.value='image';type.dispatchEvent(new b.window.Event('change',{bubbles:true}));assert.equal(b.window.document.querySelectorAll('.entry').length,1);
+  b.click('[data-open-image="'+SHOT_ONE+'"]');await b.wait(()=>!b.$('mask-save').disabled);assert.match(b.$('image-counter').textContent,/1 \/ 2/);
+  const img=b.$('study-image');img.getBoundingClientRect=()=>({left:0,top:0,width:400,height:1600});img.dispatchEvent(new b.window.Event('load'));b.click('#mask-edit');
+  for(const [event,x,y]of [['pointerdown',100,400],['pointermove',300,800],['pointerup',300,800]])b.$('image-overlay').dispatchEvent(new b.window.PointerEvent(event,{bubbles:true,pointerId:1,isPrimary:true,button:0,clientX:x,clientY:y}));
+  assert.equal(b.window.document.querySelector('.image-mask').style.left,'25%');assert.equal(b.window.document.querySelector('.image-mask').style.top,'25%');b.click('#mask-save');await b.wait(()=>b.$('image-status').textContent.includes('已保存到 Cloudflare'));
+  b.click('#image-next');await b.wait(()=>b.$('image-counter').textContent.includes('2 / 2')&&!b.$('mask-save').disabled);assert.equal(b.window.document.querySelectorAll('.image-mask').length,0);b.click('#image-prev');await b.wait(()=>b.window.document.querySelectorAll('.image-mask').length===1);b.click('#image-close');
+  b.click('[data-learn="'+SHOT_ONE+'"]');assert.ok(b.window.document.querySelector('.image-preview'));b.click('[data-rate="good"]');await b.wait(()=>b.$('content').textContent.includes('本轮复习完成'));await b.wait(()=>b.$('cloud-save-status').textContent==='设置已云同步');
+  assert.equal(text.calls.some(c=>c.method==='PATCH'),false);assert.equal(shot.calls.filter(c=>c.method==='PATCH'&&c.path.includes('/pages/')).length,1);assert.equal(shot.pages.get(SHOT_ONE).properties['截图'].files.length,2);
+ }finally{await b.close();}
+ b=await browser(env,'image-b',false,'screenshots');try{
+  await b.wait(()=>b.$('total').textContent==='2');assert.match(b.$('content').textContent,/本轮复习完成/);b.click('[data-mode="browse"]');b.click('[data-open-image="'+SHOT_ONE+'"]');await b.wait(()=>b.window.document.querySelectorAll('.image-mask').length===1);b.$('study-image').getBoundingClientRect=()=>({left:0,top:0,width:800,height:3200});b.click('#mask-mode');const mask=b.window.document.querySelector('.image-mask');assert.equal(mask.style.left,'25%');assert.equal(mask.style.width,'50%');assert.equal(mask.hidden,false);mask.click();assert.equal(b.window.document.querySelector('.image-mask').classList.contains('revealed'),true);b.click('#image-close');
+  b.$('source-select').value='text';b.$('source-select').dispatchEvent(new b.window.Event('change',{bubbles:true}));await b.wait(()=>b.$('content').textContent.includes('sich erholen'));assert.equal(b.window.document.querySelectorAll('.image-preview').length,0);
  }finally{await b.close();}
 });

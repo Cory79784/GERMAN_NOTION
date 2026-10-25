@@ -9,7 +9,9 @@
     "run_worker_first": true
   },
   "vars": {
-    "NOTION_DATA_SOURCE_ID": "2aaff02b-8ca6-41bc-9c61-fb482528ccf3"
+    "NOTION_DATA_SOURCE_ID": "2aaff02b-8ca6-41bc-9c61-fb482528ccf3",
+    "NOTION_SCREENSHOT_DATA_SOURCE_ID": "a104f734-ef60-4daf-896b-12c7d9c806bd",
+    "NOTION_SCREENSHOT_DATABASE_ID": "54f3e119-3122-40f5-80dc-cd8a6e9316f1"
   },
   "workers_dev": true,
   "durable_objects": {

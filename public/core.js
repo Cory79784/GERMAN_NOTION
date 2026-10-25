@@ -1,6 +1,6 @@
 // Shared pure functions: no framework and no network dependencies.
 export const DEFAULT_MAP = {
-  german: 'German', chinese: 'Chinese', topicGroup:'Topic', topic: '学习主题', subtopic: '子主题',
+  images:'截图', german: 'German', chinese: 'Chinese', topicGroup:'Topic', topic: '学习主题', subtopic: '子主题',
   tags: '标签', type: 'Type', usage: '学习用途', priority: 'Priority',
   formality: '书面程度', formalScore: '书面程度评分', frequency: '常用度',
   frequencyScore: '常用度评分', spoken: '口语程度', mastery: 'Mastery',
@@ -12,7 +12,7 @@ export const DEFAULT_MAP = {
   errorCount: 'ErrorCount', eventId: 'ReviewEventID', classification: '分类状态'
 };
 export const LABELS = {
-  german:'德语',chinese:'中文',topicGroup:'主题大类',topic:'学习主题',subtopic:'子主题',tags:'标签',type:'内容类型',
+  images:'截图文件列',german:'德语',chinese:'中文',topicGroup:'主题大类',topic:'学习主题',subtopic:'子主题',tags:'标签',type:'内容类型',
   usage:'积极／消极词汇',priority:'优先级 A–D',formality:'书面程度（原文）',formalScore:'书面程度评分 1–5',
   frequency:'常用度（原文）',frequencyScore:'常用度评分 1–5',spoken:'口语程度',mastery:'掌握程度',
   example:'例句',germanContext:'德语上下文',chineseContext:'中文上下文',grammar:'语法',
@@ -81,6 +81,7 @@ export function plainProperty(p) {
   switch(p.type) {
     case 'title': case 'rich_text': return (p[p.type] || []).map(t=>t.plain_text ?? t.text?.content ?? '').join('');
     case 'select': case 'status': return p[p.type]?.name ?? null;
+    case 'files': return (p.files||[]).map(f=>f.name||'文件');
     case 'multi_select': return p.multi_select.map(x=>x.name);
     case 'number': case 'checkbox': case 'url': case 'email': case 'phone_number': return p[p.type];
     case 'date': return p.date?.start ?? null;
@@ -89,4 +90,18 @@ export function plainProperty(p) {
     case 'rollup': return p.rollup?.type === 'array' ? p.rollup.array.map(plainProperty) : p.rollup?.[p.rollup.type] ?? null;
     default: return null;
   }
+}
+
+export function isNew(entry){return !(Number(entry.learning?.reviewCount)>0);}
+export function isTrouble(entry){return !isNew(entry)&&['Incorrect','Hesitant'].includes(entry.learning?.lastResult);}
+export function makeRound(entries,size=20,order='ordered',random=Math.random){
+ if(!Number.isInteger(size)||size<1||size>200)throw new Error('每轮条数需为 1–200');
+ const ids=[...new Set(entries.map(e=>e.id))];
+ if(order==='random')for(let i=ids.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[ids[i],ids[j]]=[ids[j],ids[i]];}
+ return ids.slice(0,size);
+}
+export function roundSummary(results={}){return Object.values(results).reduce((out,r)=>{if(r in out)out[r]++;return out;},{again:0,hard:0,good:0});}
+export function normalizedRect(start,end){
+ const clamp=n=>Math.max(0,Math.min(1,n)),x=Math.min(clamp(start.x),clamp(end.x)),y=Math.min(clamp(start.y),clamp(end.y));
+ return {x,y,w:Math.abs(clamp(end.x)-clamp(start.x)),h:Math.abs(clamp(end.y)-clamp(start.y))};
 }

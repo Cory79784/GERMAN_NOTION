@@ -1,16 +1,20 @@
-import { DEFAULT_MAP, LABELS, EMPTY, text, values, matches, due, field, review, REVIEW_MAP, REVIEW_ROLES } from './core.js';
+import { DEFAULT_MAP, LABELS, EMPTY, text, values, matches, due, field, review, REVIEW_MAP, REVIEW_ROLES, isNew, isTrouble, makeRound, roundSummary } from './core.js';
+import {initImageViewer} from './images.js';
 import { demoData } from './demo.js';
 
 const $ = id=>document.getElementById(id);
 const escape = x=>text(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem('gm.'+key))??fallback;}catch{return fallback;}};
-const save=(key,value)=>{try{localStorage.setItem('gm.'+key,JSON.stringify(value));return true;}catch{toast('浏览器无法暂存设置，请确认云同步成功后再关闭页面');return false;}};
+let activeSource;try{activeSource=JSON.parse(localStorage.getItem('gm.source'))==='screenshots'?'screenshots':'text';}catch{activeSource='text';}
+const storageKey=key=>'gm.'+(activeSource==='text'?'':'screenshots.')+key;
+const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(storageKey(key)))??fallback;}catch{return fallback;}};
+const save=(key,value)=>{try{localStorage.setItem(storageKey(key),JSON.stringify(value));return true;}catch{toast('浏览器无法暂存设置，请确认云同步成功后再关闭页面');return false;}};
 const initialSettings={map:{...DEFAULT_MAP},front:'chinese',back:'german',display:['example','germanContext','chineseContext','grammar','explanation','family','mnemonic','insight','error','correction','formality','frequency','spoken']};
 const settings={...initialSettings,...read('settings',{}),map:{...DEFAULT_MAP,...read('settings',{}).map}};
-const s={connectionError:'',cloudReady:false,sharedDirty:false,prefGeneration:0,prefTimer:null,writeChain:Promise.resolve(),pendingReview:read('cloudReview',null),entries:[],properties:[],settings,rules:read('rules',[]),logic:read('logic','and'),search:read('search',''),mode:read('mode','browse'),sort:read('sort','priority'),presets:read('presets',[]),session:[],index:0,revealed:false,limit:40,demo:false,loading:false,busy:false};
+const s={connectionError:'',cloudReady:false,sharedDirty:false,prefGeneration:0,prefTimer:null,writeChain:Promise.resolve(),pendingReview:read('cloudReview',null),entries:[],properties:[],settings,rules:read('rules',[]),logic:read('logic','and'),search:read('search',''),mode:read('mode','browse'),sort:read('sort','priority'),scope:read('scope','all'),contentType:read('contentType','all'),roundResults:{},presets:read('presets',[]),session:[],index:0,revealed:false,limit:40,demo:false,loading:false,busy:false};
 let toastTimer;
 function toast(msg){$('toast').textContent=msg;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5500);}
-async function api(path,options={}) {
+async function api(path,options={},source=activeSource) {
+  path+=(path.includes('?')?'&':'?')+'source='+encodeURIComponent(source);
   const r=await fetch('/api/'+path,{...options,credentials:'omit',cache:'no-store',headers:{'Content-Type':'application/json',...options.headers}});
   const raw=await r.text();let data;
   try{data=JSON.parse(raw);}catch{
@@ -19,13 +23,13 @@ async function api(path,options={}) {
   if(!r.ok)throw new Error(data.error||'连接失败');
   return data;
 }
-const post=(path,data)=>api(path,{method:'POST',body:JSON.stringify(data)});
-function cloudPost(path,data){const task=s.writeChain.catch(()=>{}).then(()=>post(path,data));s.writeChain=task;return task;}
+const post=(path,data,source=activeSource)=>api(path,{method:'POST',body:JSON.stringify(data)},source);
+function cloudPost(path,data){const source=activeSource;const task=s.writeChain.catch(()=>{}).then(()=>post(path,data,source));s.writeChain=task;return task;}
 function applyLearning(e,learning){
   e.learning=Object.fromEntries(Object.entries({...e.learning,...learning}).filter(([k])=>REVIEW_ROLES.includes(k)));
   e.props={...(e.rawProps||e.props),...Object.fromEntries(Object.entries(e.learning).filter(([k])=>mapping()[k]).map(([k,v])=>[mapping()[k],v]))};
 }
-function sharedPayload(){return {settings:s.settings,presets:s.presets,filter:{rules:s.rules,logic:s.logic,search:s.search,sort:s.sort,mode:s.mode},...(read('resume',null)?{resume:read('resume',null)}:{})};}
+function sharedPayload(){return {settings:s.settings,presets:s.presets,filter:{rules:s.rules,logic:s.logic,search:s.search,sort:s.sort,mode:s.mode,scope:s.scope,contentType:s.contentType},...(read('resume',null)?{resume:read('resume',null)}:{})};}
 function applyPreferences(p){
   if(!p)return;
   resetSession();
@@ -51,15 +55,17 @@ async function flushPreferences(){
     if(generation===s.prefGeneration){s.sharedDirty=false;save('sharedDraft',null);$('cloud-save-status').textContent='设置已云同步';}
   }catch(e){$('cloud-save-status').textContent='设置尚未云同步';toast(e.message+'；设置已暂存在本机，点击同步可重试');}
 }
-function persistFilters(shared=true){save('rules',s.rules);save('logic',s.logic);save('search',s.search);save('mode',s.mode);save('sort',s.sort);if(shared)sharedChanged();}
+function persistFilters(shared=true){save('rules',s.rules);save('logic',s.logic);save('search',s.search);save('mode',s.mode);save('sort',s.sort);save('scope',s.scope);save('contentType',s.contentType);if(shared)sharedChanged();}
 function saveResume(value){const old=read('resume',null);save('resume',value);if(JSON.stringify(old)!==JSON.stringify(value))sharedChanged();}
 function mapping(){return {...s.settings.map,...REVIEW_MAP};}
 function val(e,role){return field(e,role,mapping());}
 function chips(e){return ['topic','subtopic','usage','priority','mastery'].map(k=>val(e,k)?`<span class="chip ${k==='priority'?'gold':''}">${escape(k==='priority'?'优先级 '+val(e,k):val(e,k))}</span>`:'').join('');}
 function filtered(){
-  return s.entries.filter(e=>matches(e,s.rules,s.logic,s.search)&&(s.mode!=='due'||due(e,mapping())))
+  return s.entries.filter(e=>matches(e,s.rules,s.logic,s.search)&&(s.mode!=='due'||due(e,mapping()))&&(s.scope==='all'||s.scope==='new'&&isNew(e)||s.scope==='due'&&due(e,mapping())||s.scope==='trouble'&&isTrouble(e))&&(s.contentType==='all'||s.contentType==='image'&&images(e).length||s.contentType==='text'&&!images(e).length))
     .sort((a,b)=>s.sort==='german'?text(val(a,'german')).localeCompare(text(val(b,'german')),'de'):s.sort==='updated'?text(b.edited).localeCompare(text(a.edited)):s.sort==='due'?text(val(a,'nextReview')||'9999').localeCompare(text(val(b,'nextReview')||'9999')):text(val(a,'priority')||'Z').localeCompare(text(val(b,'priority')||'Z')));
 }
+function images(e){return e.media?.[mapping().images]||[];}
+function previewHTML(e){const files=images(e);return files.length?`<button class="image-preview" data-open-image="${escape(e.id)}"><img loading="lazy" decoding="async" alt="${escape(files[0].name)}" src="/api/image?${escape(new URLSearchParams({source:activeSource,id:e.id,field:mapping().images,image:files[0].key}).toString())}"><span>打开截图学习 · ${files.length} 张</span><small class="image-load-state">正在加载预览…</small></button>`:'';}
 function detailHTML(e){
   const shown=new Set();
   return s.settings.display.map(role=>{
@@ -70,6 +76,7 @@ function detailHTML(e){
 function empty(title,description){return `<div class="empty"><div class="symbol">W.</div><h2>${escape(title)}</h2><p>${escape(description)}</p></div>`;}
 function render(){
   const found=filtered();
+  $('content-type').value=s.contentType;$('source-select').value=activeSource;document.querySelectorAll('[data-scope]').forEach(b=>b.classList.toggle('active',b.dataset.scope===s.scope));
   $('total').textContent=s.entries.length;$('due-count').textContent=s.entries.filter(e=>due(e,mapping())).length;
   $('result-count').textContent=`${s.loading?'正在读取 · ':''}筛选出 ${found.length} / ${s.entries.length} 条`;
   $('rule-count').textContent=s.rules.length;
@@ -79,21 +86,27 @@ function render(){
     $('content').innerHTML=s.connectionError?empty('学习内容加载失败',s.connectionError):'<p class="loading">正在检查 Notion 连接…</p>';return;
   }
   if(s.mode==='browse'){
-    $('content').innerHTML=found.length?found.slice(0,s.limit).map(e=>`<article class="entry" data-id="${escape(e.id)}"><div class="entry-top"><div>${chips(e)}</div></div><h2>${escape(val(e,'german')||'（德语字段为空）')}</h2><p class="translation">${escape(val(e,'chinese')||'（暂无中文）')}</p><details><summary>展开语境、例句与记忆点</summary>${detailHTML(e)||'<p class="muted">暂无辅助内容，可在 Notion 中补充。</p>'}</details><div class="entry-bottom"><button data-speak="${escape(e.id)}">▷ 德语朗读</button><button data-learn="${escape(e.id)}">练这张卡片 →</button>${safeLink(e.url)}</div></article>`).join('')+(found.length>s.limit?'<button id="load-more" class="load-more">显示更多条目</button>':''):empty(s.loading?'正在读取 Notion…':'没有匹配的条目',s.mode==='due'?'暂时没有到期卡片。':'可减少筛选条件，或检查字段映射。');
+    $('content').innerHTML=found.length?found.slice(0,s.limit).map(e=>`<article class="entry" data-id="${escape(e.id)}"><div class="entry-top"><div>${chips(e)}</div></div><h2>${escape(val(e,'german')||(images(e).length?'截图知识点':'（德语字段为空）'))}</h2>${previewHTML(e)}<p class="translation">${escape(val(e,'chinese')||'（暂无中文）')}</p><details><summary>展开语境、例句与记忆点</summary>${detailHTML(e)||'<p class="muted">暂无辅助内容，可在 Notion 中补充。</p>'}</details><div class="entry-bottom"><button data-speak="${escape(e.id)}">▷ 德语朗读</button><button data-learn="${escape(e.id)}">练这张卡片 →</button>${safeLink(e.url)}</div></article>`).join('')+(found.length>s.limit?'<button id="load-more" class="load-more">显示更多条目</button>':''):empty(s.loading?'正在读取 Notion…':activeSource==='screenshots'&&!s.entries.length?'截图库暂无内容':'没有匹配的条目',activeSource==='screenshots'&&!s.entries.length?'请先在 Notion 的截图学习库添加记录，并把图片上传到“截图”文件列，再点击同步。':s.mode==='due'?'暂时没有到期卡片。':'可减少筛选条件，或检查字段映射。');
   }else renderCard(found);
 }
 function safeLink(url){try{const u=new URL(url);if(u.protocol==='https:'&&(u.hostname==='www.notion.so'||u.hostname==='app.notion.com'||u.hostname.endsWith('.notion.site')))return `<a href="${escape(u.href)}" target="_blank" rel="noreferrer noopener">查看原笔记 ↗</a>`;}catch{}return '';}
-function resetSession(){s.session=[];s.index=0;s.revealed=false;}
+function resetSession(){s.session=[];s.index=0;s.revealed=false;s.roundResults={};}
+function rememberRound(){saveResume({mode:s.mode,id:s.session[s.index]||'',completed:s.index>=s.session.length,round:{ids:s.session,index:s.index,results:s.roundResults}});}
+function beginRound(ids){s.mode=s.mode==='due'?'due':'cards';s.session=ids;s.index=0;s.revealed=false;s.roundResults={};persistFilters();rememberRound();render();}
+function openRound(){if(s.loading||s.busy)return toast('请等当前操作完成');$('round-count').textContent=`当前筛选 ${filtered().length} 条，本轮最多 200 条。`;$('round-dialog').showModal();}
+function finishHTML(){const n=roundSummary(s.roundResults);return `<div class="round-summary"><p>记住 ${n.good} · 模糊 ${n.hard} · 没记住 ${n.again} · 未评分 ${s.session.length-Object.keys(s.roundResults).length}</p><button id="repeat-trouble" class="primary" ${n.hard+n.again?'':'disabled'}>只重练没记住和模糊的卡片</button></div>`;}
 function renderCard(found){
   if(!s.session.length){
-    s.session=found.map(e=>e.id);
     const resume=read('resume',null);
-    if(resume?.mode===s.mode&&resume.completed)s.index=s.session.length;else if(resume?.mode===s.mode&&s.session.includes(resume.id))s.index=s.session.indexOf(resume.id);else s.index=0;
+    if(resume?.mode===s.mode&&resume.round){const r=resume.round;s.session=r.ids.filter(id=>s.entries.some(e=>e.id===id));s.index=r.ids.slice(0,r.index).filter(id=>s.session.includes(id)).length;s.roundResults=Object.fromEntries(Object.entries(resume.round.results).filter(([id])=>s.session.includes(id)));}
+    else s.session=makeRound(found,20);
+    if(resume?.mode===s.mode&&resume.round){}else if(resume?.mode===s.mode&&resume.completed)s.index=s.session.length;else if(resume?.mode===s.mode&&s.session.includes(resume.id))s.index=s.session.indexOf(resume.id);else s.index=0;
   }
   const e=s.entries.find(e=>e.id===s.session[s.index]);
-  if(!e){$('content').innerHTML=empty(s.session.length?'本轮复习完成':'没有可学习的卡片',s.session.length?'本轮卡片已完成，原始内容仍在。可返回全部内容或重新开始。':s.mode==='due'?'没有到期复习。新内容可以在「记忆卡片」中开始学习。':'调整筛选，选出你现在想记住的内容。')+'<button data-mode="browse" class="reveal">返回全部内容（保留筛选）</button><button id="restart" class="reveal primary">重新开始当前筛选结果</button>';return;}
-  saveResume({mode:s.mode,id:e.id});
+  if(!e){$('content').innerHTML=empty(s.session.length?'本轮复习完成':'没有可学习的卡片',s.session.length?'本轮卡片已完成，原始内容仍在。可返回全部内容或重新开始。':s.mode==='due'?'没有到期复习。新内容可以在「记忆卡片」中开始学习。':'调整筛选，选出你现在想记住的内容。')+finishHTML()+'<button data-mode="browse" class="reveal">返回全部内容（保留筛选）</button><button id="restart" class="reveal primary">重新开始当前筛选结果</button>';return;}
+  rememberRound();
   const front=val(e,s.settings.front),back=val(e,s.settings.back);
+  if(images(e).length){$('content').innerHTML=`<div class="card-shell"><div class="card-meta"><span>截图学习 · ${s.index+1} / ${s.session.length}</span><button id="previous" ${s.index?'':'disabled'}>上一张</button></div><article class="card" data-id="${escape(e.id)}"><div>${chips(e)}</div>${previewHTML(e)}<p class="muted">点击图片打开阅读、缩放和遮挡回忆；同一记录的图片共享进度。</p><div class="card-actions"><button data-rate="again">没记住</button><button data-rate="hard">模糊</button><button data-rate="good" class="primary">记住了</button></div></article><button id="skip">跳过 →</button></div>`;if(s.busy)document.querySelectorAll('[data-rate]').forEach(b=>b.disabled=true);return;}
   $('content').innerHTML=`<div class="card-shell"><div class="card-meta"><span>${s.mode==='due'?'到期复习':'主动回忆'} · ${s.index+1} / ${s.session.length}</span><button id="reverse" class="quiet">⇄ 切换方向</button></div><article class="card" data-id="${escape(e.id)}"><div>${chips(e)}</div><p class="eyebrow spaced">${s.settings.front==='chinese'?'看到中文，试着说出德语':'看到德语，回忆含义'}</p><div class="card-prompt">${escape(front||'此字段为空，请在设置中更换卡片正面')}</div>${s.revealed?`<div class="card-answer">${escape(back||'此字段为空')}</div><button data-speak="${escape(e.id)}" class="quiet spaced">▷ 德语朗读</button>${detailHTML(e)}<div class="card-actions"><button data-rate="again">不记得<small>10 分钟后再见</small></button><button data-rate="hard">模糊<small>明天再复习</small></button><button data-rate="good" class="primary">记住了<small>逐步延长间隔</small></button></div>`:'<button id="reveal" class="reveal primary">想好了吗？查看答案</button>'}</article><div class="card-meta spaced"><button id="previous" class="quiet" ${s.index===0?'disabled':''}>← 上一张</button><span>${s.demo?'演示进度':'仅学习记录列保存复习 · 跨设备共享'}</span><button id="skip" class="quiet">跳过 →</button></div></div>`;
   if(s.busy)document.querySelectorAll('[data-rate]').forEach(b=>b.disabled=true);
 }
@@ -144,6 +157,7 @@ async function sync(){
     try{shared=await api('preferences');}catch(e){settingsError=e.message;}
     const draft=read('sharedDraft',null);
     if(draft){applyPreferences(draft);s.sharedDirty=true;}else if(!s.sharedDirty)applyPreferences(shared.preferences);
+    if(!read('settings',null)&&s.properties.some(p=>p.name==='学习主题（规范）'))s.settings.map.topic='学习主题（规范）';
     let cursor=null;const seenCursors=new Set();
     do {const page=await api('entries'+(cursor?'?cursor='+encodeURIComponent(cursor):''));collected.push(...page.entries);cursor=page.hasMore?page.cursor:null;if(page.hasMore&&(!cursor||seenCursors.has(cursor)))throw new Error('分页游标缺失或重复，未替换当前数据');if(cursor)seenCursors.add(cursor);$('sync-status').textContent=`已读取 ${collected.length} 条…`;}while(cursor);
     // Replace only after every page succeeds; avoid showing incomplete results as a full sync.
@@ -168,7 +182,7 @@ async function rate(result){
   if(s.busy||s.loading)return;
   if(s.pendingReview&&!s.demo){toast('还有一次复习待保存，请点击“重试保存”或“同步后重学”');return;}
   const e=s.entries.find(x=>x.id===s.session[s.index]);if(!e)return;
-  if(s.demo){const previous=e.learning||{};applyLearning(e,review(previous,result));s.index++;s.revealed=false;render();return;}
+  if(s.demo){const previous=e.learning||{};applyLearning(e,review(previous,result));s.roundResults[e.id]=result;s.index++;s.revealed=false;render();return;}
   s.pendingReview={id:e.id,result,eventId:crypto.randomUUID(),expectedLastReviewed:e.learning?.lastReviewed||null};
   save('cloudReview',s.pendingReview);await sendReview();
 }
@@ -177,7 +191,8 @@ async function sendReview(){
   try{
     const result=await cloudPost('review',s.pendingReview),e=s.entries.find(e=>e.id===s.pendingReview.id);
     if(e)applyLearning(e,result.learning);
-    if(s.session[s.index]===s.pendingReview.id){s.index++;s.revealed=false;if(s.index>=s.session.length)saveResume({mode:s.mode,id:'',completed:true});}
+    s.roundResults[s.pendingReview.id]=s.pendingReview.result;
+    if(s.session[s.index]===s.pendingReview.id){s.index++;s.revealed=false;rememberRound();}
     s.pendingReview=null;save('cloudReview',null);toast('复习进度已保存到云端');
   }catch(e){toast(e.message+'；尚未确认保存，可重试');}
   finally{s.busy=false;render();}
@@ -201,10 +216,13 @@ document.addEventListener('click',async event=>{
   const b=event.target.closest('button');if(!b)return;
   try{
     if(b.hasAttribute('data-close')){if(!s.busy)b.closest('dialog').close();return;}
+    if((s.busy||s.loading)&&(b.dataset.mode||b.dataset.scope||b.dataset.learn||['start-round','restart','repeat-trouble'].includes(b.id)))return toast('请等当前保存或同步完成');
+    if(b.dataset.scope){s.mode='browse';s.scope=b.dataset.scope;filtersChanged();return;}
+    if(b.dataset.openImage){await imageViewer.open(b.dataset.openImage);return;}
     if(b.dataset.mode){saveResume(null);s.mode=b.dataset.mode;resetSession();persistFilters();render();return;}
     if(b.dataset.quick){setQuick(b.dataset.quick);return;}
     if(b.dataset.speak){speak(b.dataset.speak);return;}
-    if(b.dataset.learn){saveResume(null);s.mode='cards';s.session=[b.dataset.learn];s.index=0;s.revealed=false;persistFilters();render();return;}
+    if(b.dataset.learn){beginRound([b.dataset.learn]);return;}
     if(b.dataset.rate){await rate(b.dataset.rate);return;}
     if(b.dataset.removeRule!==undefined){s.rules.splice(Number(b.dataset.removeRule),1);filtersChanged(true);return;}
     if(b.dataset.preset!==undefined){const p=s.presets[Number(b.dataset.preset)];s.rules=structuredClone(p.rules);s.logic=p.logic;s.search=p.search;s.sort=p.sort||'priority';$('search').value=s.search;$('sort').value=s.sort;filtersChanged(true);return;}
@@ -213,19 +231,21 @@ document.addEventListener('click',async event=>{
     switch(b.id){
       case 'demo':startApp(true);break;
       case 'leave-demo':s.demo=false;s.entries=[];s.properties=[];resetSession();$('demo-banner').hidden=true;await checkStatus();break;
+      case 'start-round':openRound();break;
+      case 'repeat-trouble':beginRound(s.session.filter(id=>['again','hard'].includes(s.roundResults[id])));break;
       case 'refresh':await sync();break;
       case 'settings-open':openSettings();break;
       case 'filters-open':$('filters').classList.add('open');$('filters-close').focus();break;
       case 'filters-close':$('filters').classList.remove('open');$('filters-open').focus();break;
       case 'add-rule':s.rules.push({field:mapping().topic,op:'in',values:[]});filtersChanged(true);break;
-      case 'reset-filters':s.rules=[];s.search='';s.logic='and';$('search').value='';filtersChanged(true);break;
+      case 'reset-filters':s.scope='all';s.contentType='all';s.rules=[];s.search='';s.logic='and';$('search').value='';filtersChanged(true);break;
       case 'save-filter':$('preset-dialog').showModal();break;
       case 'load-more':s.limit+=40;render();break;
       case 'reveal':s.revealed=true;render();break;
       case 'reverse':[s.settings.front,s.settings.back]=[s.settings.back,s.settings.front];s.revealed=false;save('settings',s.settings);sharedChanged();render();break;
       case 'skip':if(!s.busy){s.index++;s.revealed=false;render();}break;
       case 'previous':if(!s.busy){s.index=Math.max(0,s.index-1);s.revealed=false;render();}break;
-      case 'restart':save('resume',null);resetSession();render();break;
+      case 'restart':openRound();break;
       case 'connect':await checkStatus();break;
       case 'retry-review':await sendReview();break;
       case 'reset-review':if(!s.busy&&window.confirm('重新读取云端进度并放弃此条尚未确认的本机事件？')){s.pendingReview=null;save('cloudReview',null);resetSession();await sync();}break;
@@ -243,6 +263,8 @@ document.addEventListener('change',event=>{
     filtersChanged(true);return;
   }
   if(el.dataset.display){s.settings.display=el.checked?[...s.settings.display,el.dataset.display]:s.settings.display.filter(k=>k!==el.dataset.display);return;}
+  if(el.id==='source-select'){awaitSwitch(el.value).catch(e=>toast(e.message));return;}
+  if(el.id==='content-type'){s.contentType=el.value;filtersChanged();return;}
   if(el.id==='logic'){s.logic=el.value;filtersChanged();return;}
   if(el.id==='sort'){s.sort=el.value;filtersChanged();return;}
   const container=el.closest('[data-rule]');if(!container)return;const r=s.rules[Number(container.dataset.rule)];
@@ -270,11 +292,21 @@ async function checkStatus(){
   $('search').value=s.search;$('sort').value=s.sort;renderFilters();render();
   try{
     const status=await api('status');
-    if(status.version!=='review-only-v4'||!status.learningShared)throw new Error('线上后端尚未更新，请检查 Cloudflare 是否部署了 GitHub 最新提交');
+    if(status.version!=='screenshots-v5'||!status.learningShared)throw new Error('线上后端尚未更新，请检查 Cloudflare 是否部署了 GitHub 最新提交');
     if(!status.configured)throw new Error('请在 Cloudflare 配置 NOTION_TOKEN；无需 APP_PASSWORD。');
     await sync();
   }catch(e){s.connectionError=e.message;$('connection-message').textContent=e.message;$('sync-status').textContent='连接失败';}
   finally{s.checking=false;render();}
+}
+document.addEventListener('load',event=>{const img=event.target;if(img.matches?.('.image-preview img'))img.parentElement.querySelector('.image-load-state').textContent='';},true);
+document.addEventListener('error',event=>{const img=event.target;if(img.matches?.('.image-preview img'))img.parentElement.querySelector('.image-load-state').textContent='预览加载失败，点击打开后重试';},true);
+const imageViewer=initImageViewer({api,post,getEntry:id=>s.entries.find(e=>e.id===id),getField:()=>mapping().images,getSource:()=>activeSource,toast,isDemo:()=>s.demo});
+$('round-form').addEventListener('submit',event=>{event.preventDefault();try{const data=new FormData(event.target),size=Number(data.get('size')==='custom'?data.get('custom'):data.get('size'));const ids=makeRound(filtered(),size,data.get('order'));if(!ids.length)return toast('当前筛选没有可学习内容');$('round-dialog').close();beginRound(ids);}catch(e){toast(e.message);}});
+async function awaitSwitch(source){
+  if(!['text','screenshots'].includes(source)||source===activeSource)return;
+  if(s.checking||s.loading||s.busy||s.pendingReview||!imageViewer.canLeave()){$('source-select').value=activeSource;return toast('先完成保存或处理待保存的复习，再切换知识库');}
+  await flushPreferences();if(s.sharedDirty){$('source-select').value=activeSource;return toast('设置尚未同步，请重试后再切换');}
+  imageViewer.close();s.demo=false;$('demo-banner').hidden=true;clearTimeout(s.prefTimer);activeSource=source;localStorage.setItem('gm.source',JSON.stringify(source));s.entries=[];s.properties=[];s.cloudReady=false;s.pendingReview=read('cloudReview',null);s.settings={...initialSettings,...read('settings',{}),map:{...DEFAULT_MAP,...read('settings',{}).map}};s.rules=read('rules',[]);s.logic=read('logic','and');s.search=read('search','');s.sort=read('sort','priority');s.scope=read('scope','all');s.contentType=read('contentType','all');s.presets=read('presets',[]);s.mode=read('mode','browse');resetSession();await checkStatus();
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&s.cloudReady&&!s.demo&&!s.busy)sync();});
 startApp();

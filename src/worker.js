@@ -1,5 +1,7 @@
 import {HttpError,serialize,sourceSchema,recordReview,STATE_FIELD,LEGACY_FIELD} from './state.js';
-const VERSION='review-only-v4';
+const VERSION='screenshots-v5';
+import {mediaMetadata,imageResponse,selectedImage} from './media.js';
+import {maskStore} from './preferences.js';
 export {SharedPreferences} from './preferences.js';
 import {preferences} from './preferences.js';
 const DATABASE_ID='371bf40d-a207-49eb-8207-51efaf2cb807';
@@ -39,17 +41,26 @@ export default{async fetch(req,env){
     const configured=!!(env.NOTION_TOKEN&&env.NOTION_DATA_SOURCE_ID);
     if(!configured)throw new HttpError(503,'请配置 NOTION_TOKEN 和 NOTION_DATA_SOURCE_ID；无需访问口令');
     if(!/^[0-9a-f-]{32,36}$/i.test(env.NOTION_DATA_SOURCE_ID))throw new HttpError(503,'NOTION_DATA_SOURCE_ID 格式无效');
+    const sources={text:env.NOTION_DATA_SOURCE_ID,screenshots:env.NOTION_SCREENSHOT_DATA_SOURCE_ID};
+    if(u.pathname==='/api/sources'&&req.method==='GET')return json({sources:Object.entries(sources).map(([key,id])=>({key,configured:!!id,label:key==='text'?'文字知识库':'截图知识库',id:id||null}))});
+    const selected=u.searchParams.get('source')||'text';
+    if(!Object.hasOwn(sources,selected))throw new HttpError(400,'未知知识库');
+    if(!sources[selected])throw new HttpError(503,'截图知识库尚未配置，请设置 NOTION_SCREENSHOT_DATA_SOURCE_ID');
+    if(!/^[0-9a-f-]{32,36}$/i.test(sources[selected]))throw new HttpError(503,'所选知识库数据源 ID 格式无效');
+    env={...env,NOTION_DATA_SOURCE_ID:sources[selected],NOTION_DATABASE_ID:selected==='screenshots'?env.NOTION_SCREENSHOT_DATABASE_ID:env.NOTION_DATABASE_ID};
+    if(u.pathname==='/api/image'&&req.method==='GET')return await imageResponse(env,notion,u.searchParams);
+    if(u.pathname==='/api/masks'){const data=req.method==='POST'?await body(req):Object.fromEntries(u.searchParams);if(!data||typeof data!=='object')throw new HttpError(400,'遮挡请求无效');await selectedImage(env,notion,data.id,data.field,data.image);return json(await maskStore(env,data,req.method==='POST'));}
     if(u.pathname==='/api/diagnostics'&&req.method==='GET')return json(await diagnostics(env));
     const source=env.NOTION_DATA_SOURCE_ID;
     if(u.pathname==='/api/status'&&req.method==='GET'){
       await notion(env,`/data_sources/${source}`);
-      return json({version:VERSION,configured,notionConnected:true,loginRequired:false,originalContentReadOnly:true,learningShared:true,progressStorage:'notion',preferencesStorage:'cloudflare',preferencesConfigured:!!env.SHARED_PREFERENCES,reviewField:STATE_FIELD});
+      return json({version:VERSION,source:selected,sourceId:source,configured,notionConnected:true,loginRequired:false,originalContentReadOnly:true,learningShared:true,progressStorage:'notion',preferencesStorage:'cloudflare',preferencesConfigured:!!env.SHARED_PREFERENCES,reviewField:STATE_FIELD});
     }
-    if(u.pathname==='/api/schema'&&req.method==='GET'){const s=await sourceSchema(env,notion);return json({properties:Object.entries(s.properties).filter(([n])=>![STATE_FIELD,LEGACY_FIELD].includes(n)).map(([name,p])=>({name,id:p.id,type:p.type,...(p.type==='formula'?{formula:p.formula?.expression}:{}),options:p[p.type]?.options?.map(x=>x.name)||[]}))});}
+    if(u.pathname==='/api/schema'&&req.method==='GET'){const s=await sourceSchema(env,notion);return json({properties:Object.entries(s.properties).filter(([n])=>![STATE_FIELD,LEGACY_FIELD].includes(n)).map(([name,p])=>({name,id:p.id,type:p.type,...(p.type==='formula'&&u.searchParams.get('definitions')==='1'?{formula:p.formula?.expression}:{}),options:p[p.type]?.options?.map(x=>x.name)||[]}))});}
     if(u.pathname==='/api/entries'&&req.method==='GET'){
       const cursor=u.searchParams.get('cursor');if(cursor&&cursor.length>1000)throw new HttpError(400,'无效分页参数');
       const r=await notion(env,`/data_sources/${source}/query`,'POST',{page_size:100,...(cursor?{start_cursor:cursor}:{})});
-      return json({entries:r.results.map(serialize),hasMore:r.has_more,cursor:r.next_cursor});
+      return json({entries:await Promise.all(r.results.map(async p=>({...serialize(p),source:selected,media:await mediaMetadata(p)}))),hasMore:r.has_more,cursor:r.next_cursor});
     }
     if(u.pathname==='/api/preferences')return json(await preferences(env,req.method==='POST'?await body(req):undefined));
     if(u.pathname==='/api/classify')throw new HttpError(403,'网页分类写入已禁用，请在 Notion 修改原字段');

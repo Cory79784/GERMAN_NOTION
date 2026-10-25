@@ -1,20 +1,30 @@
 import {HttpError,validatePreferences} from './state.js';
-// No Notion client or token is passed to the settings store.
+export function validateMasks(value){
+ if(!value||!Array.isArray(value.rects)||value.rects.length>40||!Number.isInteger(value.expectedVersion)||value.expectedVersion<0)throw new HttpError(400,'遮挡配置无效');
+ const rects=value.rects.map(r=>{if(!r||!['x','y','w','h'].every(k=>Number.isFinite(r[k])&&r[k]>=0&&r[k]<=1)||r.w<0.001||r.h<0.001||r.x+r.w>1.000001||r.y+r.h>1.000001)throw new HttpError(400,'遮挡坐标必须是图片内的比例坐标');return {x:r.x,y:r.y,w:r.w,h:r.h};});
+ return {rects,expectedVersion:value.expectedVersion};
+}
 export class SharedPreferences{
-  constructor(ctx){this.storage=ctx.storage;}
-  async fetch(req){
-    if(req.method==='GET')return Response.json(await this.storage.get('preferences')||{preferences:null,updatedAt:null});
-    if(req.method!=='POST')return new Response(null,{status:405});
-    const clean=validatePreferences(await req.json());
-    const value={preferences:clean,updatedAt:new Date().toISOString()};
-    await this.storage.put('preferences',value);return Response.json(value);
-  }
+ constructor(ctx){this.storage=ctx.storage;}
+ async fetch(req){
+  const path=new URL(req.url).pathname;
+  try{
+   if(path.startsWith('/masks/')){
+    const key=path.slice(1);if(req.method==='GET')return Response.json(await this.storage.get(key)||{rects:[],version:0});
+    const clean=validateMasks(await req.json());
+    return await this.storage.transaction(async tx=>{const old=await tx.get(key)||{version:0};if(old.version!==clean.expectedVersion)return Response.json({error:'另一设备已更新遮挡，请重新加载后再编辑'},{status:409});const value={rects:clean.rects,version:old.version+1};await tx.put(key,value);return Response.json(value);});
+   }
+   if(req.method==='GET')return Response.json(await this.storage.get('preferences')||{preferences:null,updatedAt:null});
+   if(req.method!=='POST')return new Response(null,{status:405});
+   const value={preferences:validatePreferences(await req.json()),updatedAt:new Date().toISOString()};await this.storage.put('preferences',value);return Response.json(value);
+  }catch(e){return Response.json({error:e.status?e.message:'Cloudflare 保存失败'},{status:e.status||500});}
+ }
 }
-export async function preferences(env,value){
-  if(!env.SHARED_PREFERENCES)throw new HttpError(503,'缺少 Cloudflare 共享设置绑定，请部署仓库中的完整 wrangler.jsonc；未写入 Notion');
-  const id=env.SHARED_PREFERENCES.idFromName(env.NOTION_DATA_SOURCE_ID.replaceAll('-','').toLowerCase());
-  const stub=env.SHARED_PREFERENCES.get(id),clean=value===undefined?undefined:validatePreferences(value);
-  const r=await stub.fetch(new Request('https://settings.internal/preferences',{method:clean===undefined?'GET':'POST',body:clean===undefined?undefined:JSON.stringify(clean)}));
-  if(!r.ok)throw new HttpError(502,'Cloudflare 共享设置保存失败，未写入 Notion');
-  return r.json();
+async function cloudStore(env,path,value){
+ if(!env.SHARED_PREFERENCES)throw new HttpError(503,'缺少 Cloudflare 共享设置绑定，请部署完整 wrangler.jsonc；未写入 Notion');
+ const id=env.SHARED_PREFERENCES.idFromName(env.NOTION_DATA_SOURCE_ID.replaceAll('-','').toLowerCase());
+ const r=await env.SHARED_PREFERENCES.get(id).fetch(new Request('https://settings.internal'+path,{method:value===undefined?'GET':'POST',body:value===undefined?undefined:JSON.stringify(value)}));
+ const data=await r.json();if(!r.ok)throw new HttpError(r.status,data.error||'Cloudflare 保存失败');return data;
 }
+export const preferences=(env,value)=>cloudStore(env,'/preferences',value===undefined?undefined:validatePreferences(value));
+export const maskStore=(env,data,write)=>cloudStore(env,`/masks/${data.id}/${encodeURIComponent(data.field)}/${data.image}`,write?validateMasks(data):undefined);

@@ -5,8 +5,9 @@ const prop=(type,value)=>({type,[type]:type==='title'||type==='rich_text'?[{text
 export function fixture(){
   const calls=[],properties={German:{type:'title',title:{}},Chinese:{type:'rich_text',rich_text:{}},Priority:{type:'select',select:{options:[{name:'A'},{name:'B'}]}}};
   const pages=new Map([ONE,TWO].map((id,i)=>[id,{id,parent:{type:'data_source_id',data_source_id:SOURCE},url:'https://www.notion.so/'+id,last_edited_time:'2026-10-24',properties:{German:prop('title',i?'einen Beitrag leisten':'sich erholen'),Chinese:prop('rich_text',i?'作出贡献':'恢复'),Priority:prop('select',i?'B':'A'),Mastery:prop('select','New'),ReviewCount:prop('number',0),ReviewInterval:prop('number',0),LastReviewed:prop('date',null)}}]));
-  const storage=new Map(),durable=new SharedPreferences({storage:{get:async key=>structuredClone(storage.get(key)),put:async(key,value)=>storage.set(key,structuredClone(value))}});
-  const env={SHARED_PREFERENCES:{idFromName:x=>x,get:()=>durable},NOTION_TOKEN:'test-only-token',NOTION_DATA_SOURCE_ID:SOURCE,ASSETS:{fetch:async()=>new Response('static page')},FETCH:async(url,init)=>{
+  const stores=new Map();
+  const namespace={idFromName:x=>x,get:id=>{if(!stores.has(id)){const values=new Map();const storage={get:async key=>structuredClone(values.get(key)),put:async(key,value)=>values.set(key,structuredClone(value))};storage.transaction=async fn=>fn(storage);stores.set(id,new SharedPreferences({storage}));}return stores.get(id);}};
+  const env={SHARED_PREFERENCES:namespace,NOTION_TOKEN:'test-only-token',NOTION_DATA_SOURCE_ID:SOURCE,ASSETS:{fetch:async()=>new Response('static page')},FETCH:async(url,init)=>{
     const path=new URL(url).pathname,data=init.body?JSON.parse(init.body):null;calls.push({path,method:init.method,data});
     if(path.endsWith('/query')){
       let results=[...pages.values()];
@@ -25,3 +26,14 @@ export const request=(env,path,data,origin='https://memory.example')=>{
   const method=data===undefined?'GET':'POST';
   return import('../src/worker.js').then(({default:worker})=>worker.fetch(new Request('https://memory.example/api/'+path,{method,headers:data===undefined?{}:{Origin:origin,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)}),env));
 };
+export const SHOT_SOURCE='a104f734-ef60-4daf-896b-12c7d9c806bd',SHOT_ONE='33333333-3333-4333-8333-333333333333',SHOT_TWO='44444444-4444-4444-8444-444444444444';
+export function twoSources(){
+ const text=fixture(),shot=fixture(),originalPages=[...shot.pages.values()];shot.pages.clear();
+ for(const [i,page]of originalPages.entries()){page.id=i?SHOT_TWO:SHOT_ONE;page.parent.data_source_id=SHOT_SOURCE;page.properties.German.title=[];page.properties.Chinese.rich_text=[];shot.pages.set(page.id,page);}
+ shot.properties['截图']={type:'files',files:{}};shot.pages.get(SHOT_ONE).properties['截图']={type:'files',files:[1,2].map(n=>({name:'screenshot-'+n+'.png',type:'file',file:{url:'https://prod-files-secure.s3.us-west-2.amazonaws.com/workspace/image-'+n+'/screenshot.png?signature=temporary'}}))};
+ const env={...text.env,NOTION_SCREENSHOT_DATA_SOURCE_ID:SHOT_SOURCE,FETCH:async(url,init)=>{
+  const path=new URL(url).pathname;if(new URL(url).hostname.endsWith('amazonaws.com'))return new Response(new Uint8Array([137,80,78,71]),{headers:{'Content-Type':'image/png'}});
+  return path.includes(SHOT_SOURCE)||shot.pages.has(path.split('/').at(-1))?shot.env.FETCH(url,init):text.env.FETCH(url,init);
+ }};
+ return {env,text,shot};
+}
